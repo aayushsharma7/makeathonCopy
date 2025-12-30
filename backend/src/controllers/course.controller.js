@@ -8,46 +8,57 @@ export const courseController = async (req,res) => {
     try {
 
         const playlistID = req.body.url.split('list=')[1];
-        const courseData = await axios.get(`https://www.googleapis.com/youtube/v3/playlistItems?key=${process.env.YT_API_KEY}&part=snippet&playlistId=${playlistID}&maxResults=50`);
-
-        const ytVideoIds = courseData.data.items.map((vid,idx) => {
-            return vid.snippet.resourceId.videoId
+        const checkArr = await Course.find({
+            playlistId: playlistID
         })
 
-        const ytString = ytVideoIds.join();
-        const videoData = await axios.get(`https://www.googleapis.com/youtube/v3/videos?key=${process.env.YT_API_KEY}&part=contentDetails,statistics,status&id=${ytString}&maxResults=50`);
-        const newCourse = new Course({
-            title: req.body.name,
-            playlistId: playlistID,
-            totalVideos: courseData.data.pageInfo.totalResults,
-            videos: []
-        })
-        newCourse.save()
+        if(checkArr.length===0){
 
-        const videoArray = courseData.data.items.map((vid,idx) => { //array of vid objects
-            return {
-                playlist: newCourse._id,
-                title:vid.snippet.title,
-                description:vid.snippet.description,
-                channelId:vid.snippet.channelId,
-                channelTitle:vid.snippet.channelTitle,
-                thumbnail:vid.snippet.thumbnails.maxres.url,
-                videoId:vid.snippet.resourceId.videoId,
-                duration:videoData.data.items[idx].contentDetails.duration
-            }
-        })
+            const courseData = await axios.get(`https://www.googleapis.com/youtube/v3/playlistItems?key=${process.env.YT_API_KEY}&part=snippet&playlistId=${playlistID}&maxResults=50`);
+            const ytVideoIds = courseData.data.items.map((vid,idx) => {
+                return vid.snippet.resourceId.videoId
+            })
 
-        const videosAll = await Video.insertMany(videoArray)
+            const ytString = ytVideoIds.join();
+            console.log(ytString)
+            const videoData = await axios.get(`https://www.googleapis.com/youtube/v3/videos?key=${process.env.YT_API_KEY}&part=contentDetails,statistics,status&id=${ytString}&maxResults=50`);
+            const newCourse = new Course({
+                title: req.body.name,
+                playlistId: playlistID,
+                totalVideos: courseData.data.pageInfo.totalResults,
+                videos: []
+            })
+            newCourse.save()
 
-        const videoIDs = videosAll.map((vid,idx) => {
-            return vid._id;
-        })
-        
-        const updatedCourse  = await Course.findByIdAndUpdate(newCourse._id, {
-            videos: videoIDs
-        })
+            const videoArray = courseData.data.items.map((vid,idx) => { //array of vid objects
+                return {
+                    playlist: newCourse._id,
+                    title:vid.snippet.title ?? "No title",  // ?? is nullish check basically provides default value incase its null/undefined
+                    description:vid.snippet.description ?? "No description",
+                    channelId:vid.snippet.channelId,
+                    channelTitle:vid.snippet.channelTitle,
+                    thumbnail:vid.snippet.thumbnails.maxres?.url || vid.snippet.thumbnails.standard?.url || vid.snippet.thumbnails.high?.url || vid.snippet.thumbnails.default?.url,
+                    //maxres wasnt available in some vids so set OR
+                    videoId:vid.snippet.resourceId.videoId,
+                    duration:videoData.data?.items?.[idx]?.contentDetails?.duration ?? "PT0S"
+                }
+            })
 
-        res.status(200).send(updatedCourse);
+            const videosAll = await Video.insertMany(videoArray)
+
+            const videoIDs = videosAll.map((vid,idx) => {
+                return vid._id;
+            })
+            
+            const updatedCourse  = await Course.findByIdAndUpdate(newCourse._id, {
+                videos: videoIDs
+            })
+
+            res.status(200).send(updatedCourse);
+        }
+        else{
+            res.status(200).send("Already Exists")
+        }
 
     } catch (error) {
         res.status(400).send("Error occured")
