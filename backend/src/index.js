@@ -3,10 +3,12 @@ import "dotenv/config"
 import connectDB from "./config/db.js";
 import authRoute from "./routes/authRoute.js"
 import courseRoute from "./routes/courseRoute.js"
-
+import cors from 'cors'
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+app.use(cors())
 
 connectDB();
 

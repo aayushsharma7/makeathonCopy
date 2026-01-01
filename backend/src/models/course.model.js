@@ -9,6 +9,10 @@ const courseModel = new mongoose.Schema({
         type: String,
         required: true
     },
+    thumbnail:{
+        type: String,
+        required: true
+    },
     totalVideos:{
         type: Number,
         required: true
@@ -17,7 +21,11 @@ const courseModel = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: "Video",
         required: true
-    }]
+    }],
+    owner: {
+        type: String,
+        required: true
+    }
 
 },{timestamps: true});
 
