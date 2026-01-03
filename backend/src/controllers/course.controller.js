@@ -9,7 +9,8 @@ export const courseController = async (req,res) => {
 
         const playlistID = await req.body.url.split('list=')[1];
         const checkArr = await Course.find({
-            playlistId: playlistID
+            playlistId: playlistID,
+            owner: req.body.owner
         })
 
         if(checkArr.length===0){

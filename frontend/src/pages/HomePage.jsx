@@ -1,24 +1,57 @@
 import React, { useEffect, useState } from "react";
-import { Plus, Play, MoreVertical, Clock, User, Zap } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Plus, Play, MoreVertical, Clock, User, Zap, LogOutIcon, LogInIcon } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 
 
 
 const HomePage = () => {
 
-    const [course, setCourse] = useState([{}]);
-    const [user, setUser] = useState('Aayush');
+    const [courses, setCourses] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [isLoggedIn, setIsLoggedIn] = useState(false)
 
+    const {username} = useParams()
+
+    const checkAuth = async () => {
+      try {
+        const responsePost = await axios.get(
+          `http://localhost:3000/auth/check/${username}`, {withCredentials: true}
+        );
+        console.log(responsePost.data)
+        if(responsePost.data.code === 200){
+          setIsLoggedIn(true);
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    }
+
+  useEffect(() => {
+    checkAuth();
+  })
 
     const getData = async () => {
-       const data =  await axios.get(`http://localhost:3000/course/Aayush`);
-        setCourse(data.data.reverse())
-        console.log(data.data);
+      try {
+        const data =  await axios.get(`http://localhost:3000/course/${username}`,{ withCredentials: true });
+        if(data.status === 200){
+          setCourses(data.data.reverse())
+          console.log(data.data);
+        }
+        
+      } catch (error) {
+        console.log(error)
+      } finally {
+        setLoading(false);
+        // setIsLoggedIn(true);
+        // console.log(isLoggedIn)
+      }
+       
     } 
 
     useEffect(() => {
         getData();
+        console.log(courses)
     },[]);
 
     const navigate = useNavigate();
@@ -27,9 +60,223 @@ const HomePage = () => {
         navigate(`/courses/${n}/${e}}`)
     }
 
+    const handleLogout = async () => {
+      if(isLoggedIn){
+        const apiRes = await axios.post('http://localhost:3000/auth/logout',{},{
+          withCredentials: true
+        })
+        console.log(apiRes)
+        if(apiRes.data.code === 200){
+          navigate('/login')
+        }
+        else{
+          console.log(apiRes)
+        }
+      }
+      else{
+        navigate('/login')
+      }
+      
+    }
+
+    
+
     // const changeUser = () => {
     //     setUser('changed');
     // }
+
+    // setTimeout(() => {
+    // setLoading(false);
+    // },500)
+
+  if(loading) return (
+    <div className="flex items-center justify-center min-h-screen bg-[#0A0A0A] font-sans selection:bg-[#DEFF0A] selection:text-black overflow-hidden relative">
+      <div className="absolute top-[-20%] left-[-10%] w-150 h-150 bg-[#DEFF0A] rounded-full blur-[180px] opacity-[0.15] pointer-events-none mix-blend-screen"></div>
+      <div className="absolute bottom-[-20%] right-[-10%] w-125 h-125 bg-[#7000FF] rounded-full blur-[180px] opacity-[0.12] pointer-events-none mix-blend-screen"></div>
+      <div className="absolute top-[40%] left-[60%] w-75 h-75 bg-[#00E0FF] rounded-full blur-[150px] opacity-[0.08] pointer-events-none mix-blend-screen"></div>
+      {/* Noise Texture */}
+      <div
+        className="fixed inset-0 pointer-events-none opacity-[0.03]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='6.29' numOctaves='6' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
+        }}
+      ></div>
+      <div class="container">
+      <div class="h1Container">
+
+    <div class="cube h1 w1 l1">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h1 w1 l2">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h1 w1 l3">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h1 w2 l1">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h1 w2 l2">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h1 w2 l3">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h1 w3 l1">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h1 w3 l2">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h1 w3 l3">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+  </div>
+  
+  <div class="h2Container">
+
+    <div class="cube h2 w1 l1">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h2 w1 l2">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h2 w1 l3">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h2 w2 l1">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h2 w2 l2">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h2 w2 l3">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h2 w3 l1">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h2 w3 l2">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h2 w3 l3">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+  </div>
+  
+  <div class="h3Container">
+
+    <div class="cube h3 w1 l1">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h3 w1 l2">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h3 w1 l3">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h3 w2 l1">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h3 w2 l2">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h3 w2 l3">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h3 w3 l1">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h3 w3 l2">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+
+    <div class="cube h3 w3 l3">
+      <div class="face top"></div>
+      <div class="face left"></div>
+      <div class="face right"></div>
+    </div>
+  </div>
+  
+      </div>
+    </div>
+    
+  )
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] font-sans selection:bg-[#DEFF0A] selection:text-black overflow-hidden relative">
@@ -46,7 +293,7 @@ const HomePage = () => {
       ></div>
 
       {/* --- MAIN CONTENT CONTAINER --- */}
-      <div className="relative z-10 max-w-7xl mx-auto px-6 py-8 md:py-8">
+      <div className="relative z-10 max-w-7xl mx-auto px-6 py-10 ">
         {/* 1. HERO HEADER */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-20">
           <div className="relative">
@@ -64,20 +311,31 @@ const HomePage = () => {
           </div>
 
           {/* New Ingestion Button (Styled like CreateCourse submit) */}
-          <Link to="/create" className="group relative inline-flex">
-            <button className="relative inline-flex items-center justify-center px-8 py-4 text-base font-black text-black transition-all duration-200 bg-[#DEFF0A] font-pj rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 hover:bg-[#CBEA00] active:scale-[0.98]">
-              <Plus className="w-5 h-5 mr-2" strokeWidth={3} />
-              NEW COURSE
-            </button>
-          </Link>
+          <div className="flex flex-col gap-3 items-end">
+              <button 
+              onClick={handleLogout}
+              className="cursor-pointer relative inline-flex items-center justify-center px-4 py-2 text-base font-black text-black transition-all duration-200 bg-[#DEFF0A] font-pj rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 hover:bg-[#CBEA00] active:scale-[0.98]">
+                {isLoggedIn ? <LogOutIcon className="w-5 h-5 mr-2" strokeWidth={3} />: <LogInIcon className="w-5 h-5 mr-2" strokeWidth={3} /> }
+                {isLoggedIn ? 'LOG OUT': 'LOGIN' }
+              </button>
+            <div className={isLoggedIn ? '': 'hidden'}> 
+            <Link to={`/create/${username}`} className="group relative inline-flex">
+              <button className=" relative inline-flex items-center justify-center px-8 py-4 text-base font-black text-black transition-all duration-200 bg-[#DEFF0A] font-pj rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 hover:bg-[#CBEA00] active:scale-[0.98]">
+                <Plus className="w-5 h-5 mr-2" strokeWidth={3} />
+                NEW COURSE
+              </button>
+            </Link>
+            </div>
+          </div>
+          
         </div>
 
-        {/* 2. COURSE GRID */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {course.map((course,idx) => (
+        {isLoggedIn ?
+         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {courses.map((course,idx) => (
             <div
               key={idx}
-              className="group relative bg-[#141414]/60 backdrop-blur-md border border-white/5 rounded-4xl overflow-hidden hover:border-[#DEFF0A]/30 transition-all duration-500 hover:shadow-[0_0_40px_-10px_rgba(222,255,10,0.1)] hover:-translate-y-1"
+              className={`group ${courses.length > 0 ? '' : 'hidden'} relative bg-[#141414]/60 backdrop-blur-md border border-white/5 rounded-4xl overflow-hidden hover:border-[#DEFF0A]/30 transition-all duration-500 hover:shadow-[0_0_40px_-10px_rgba(222,255,10,0.1)] hover:-translate-y-1`}
             >
               {/* Card Image Area */}
               <div className="relative h-56 w-full overflow-hidden">
@@ -163,7 +421,7 @@ const HomePage = () => {
 
           {/* Add New Placeholder Card (Empty State Aesthetic) */}
           <Link
-            to="/create"
+            to={`/create/${username}`}
             className="group relative border border-dashed border-zinc-800 rounded-4xl flex flex-col items-center justify-center p-6 hover:border-[#DEFF0A]/40 hover:bg-[#DEFF0A]/5 transition-all duration-300 min-h-75"
           >
             <div className="w-16 h-16 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center group-hover:scale-110 group-hover:border-[#DEFF0A] transition-all duration-300">
@@ -177,6 +435,16 @@ const HomePage = () => {
             </span>
           </Link>
         </div>
+         : 
+         <div className="flex items-center justify-center mt-30 mb-60">
+          <h1 className="text-5xl md:text-7xl font-black text-white tracking-tight leading-[0.9]">
+              Please login <br />
+              <span className="text-transparent bg-clip-text bg-linear-to-r from-[#DEFF0A] via-white to-zinc-500">
+                to continue
+              </span>
+            </h1>
+         </div>
+        }
 
         {/* Footer Status */}
         <div className="mt-20 border-t border-white/5 pt-8 flex justify-between items-center text-xs font-bold text-zinc-700 uppercase tracking-widest">

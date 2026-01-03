@@ -19,7 +19,7 @@ const LandingPage = () => {
         {/* Decorative Elements */}
         {/* Main Card */}
         <div className="flex items-center justify-center">
-          <Link to={"/create"}>
+          <Link to={"/signup"}>
             <button className="w-50 bg-[#DEFF0A] hover:bg-[#CBEA00] active:scale-[0.98] text-black font-black text-[16px] tracking-wide py-5 rounded-2xl transition-all duration-300 flex items-center justify-center gap-3 overflow-hidden">
               <span className="relative z-10">LAUNCH COURSE</span>
               <svg

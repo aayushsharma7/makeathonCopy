@@ -1,36 +1,55 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
-import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeftToLine } from 'lucide-react';
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeftToLine, LogInIcon, LogOutIcon } from 'lucide-react';
 
 const CreateCourse = () => {
 
     
 
   const [playlist, setPlaylist] = useState("");
-  const [owner, setOwner] = useState("");
   const [title, setTitle] = useState("");
-  const [formData, setFormData] = useState({});
   const [statusCode, setStatusCode] = useState({});
   const navigate = useNavigate();
+  
+  const {username} = useParams()
 
   const playlistHandle = (e) => {
     setPlaylist(e.target.value);
   };
-  const ownerHandle = (e) => {
-    setOwner(e.target.value);
-  };
+  
   const titleHandle = (e) => {
     setTitle(e.target.value);
   };
 
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  const checkAuth = async () => {
+    try {
+      const responsePost = await axios.get(
+        `http://localhost:3000/auth/check/${username}`, {withCredentials: true}
+      );
+      console.log(responsePost.data)
+      if(responsePost.data.code === 200){
+        setIsLoggedIn(true);
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  useEffect(() => {
+    checkAuth();
+  })
+
   const backendResponse = async (payload) => {
     try {
       const responsePost = await axios.post(
-        "http://localhost:3000/course",
-        payload
+        `http://localhost:3000/course/create/${username}`,
+        payload,
+        {withCredentials: true}
       );
-      // console.log(responsePost.status);
+      console.log(responsePost);
       return responsePost;
     } catch (error) {
       // console.log(error.status);
@@ -43,9 +62,8 @@ const CreateCourse = () => {
     const payload = {
       url: playlist,
       name: title,
-      owner,
+      owner: username,
     };
-    setFormData(payload);
     const res = await backendResponse(payload);
     if (res.status === 409) {
       console.log(res.response.data);
@@ -60,11 +78,13 @@ const CreateCourse = () => {
         code: res.status,
         data: res.data,
       });
-      navigate('/courses')
+      const url = `/courses/${username}`
+      navigate(url)
     }
 
   };
 
+  
   return (
     <div className="min-h-screen h-fit flex items-center justify-center bg-[#0A0A0A] font-sans selection:bg-[#DEFF0A] selection:text-black overflow-hidden relative p-4">
           {/* Background Ambient Glows */}
@@ -76,31 +96,28 @@ const CreateCourse = () => {
           <div className="w-full md:max-w-135 relative z-10">
       {/* Decorative Elements */}
       {/* Main Card */}
-      <div className="md:mt-0 -mt-20 bg-[#141414]/90 backdrop-blur-xl rounded-[36px] shadow-[0_35px_60px_-15px_rgba(0,0,0,0.6)] border border-white/10 p-8 md:p-10 overflow-hidden relative">
+      {isLoggedIn ?
+         <div className="mt-10  bg-[#141414]/90 backdrop-blur-xl rounded-[36px] shadow-[0_35px_60px_-15px_rgba(0,0,0,0.6)] border border-white/10 p-8 md:p-10 overflow-hidden relative">
         {/* Header */}
-        <div className="mb-10 relative">
-          <div className="absolute -top-6 -left-6 w-12 h-12 bg-[#DEFF0A] blur-2xl opacity-40"></div>
-          <div className="flex items-center justify-between">
-            <span className="inline-block py-1 px-3 rounded-full bg-zinc-800/50 border border-white/5 text-xs font-bold text-[#DEFF0A] uppercase tracking-widest mb-4">
-                Open-Course
-            </span>
-            <Link to={'/courses'}>
-            <span className="py-1 px-3 rounded-full text-[14px] font-bold text-zinc-400 tracking-widest mb-4 flex gap-1 items-center">
-                {/* div<ArrowLeftToLine  strokeWidth={1} absoluteStrokeWidth /> */}
-                <ArrowLeftToLine size={14} />
-                Home
-            </span>
-            </Link>
-          </div>
+        <div className="mb-10 relative ">
           
           
           
+          <div className="flex justify-between">
           <h1 className="text-4xl font-black text-white tracking-tight leading-none mb-3">
             Create a course  <br />
             <span className="text-transparent bg-clip-text bg-linear-to-r from-[#DEFF0A] to-[#ffffff]">
               in seconds!
             </span>
           </h1>
+          <Link to={`/courses/${username}`}>
+            <span className="py-1 px-3 rounded-full text-[14px] font-bold text-zinc-400 tracking-widest mb-4 flex gap-1 items-center">
+              {/* div<ArrowLeftToLine  strokeWidth={1} absoluteStrokeWidth /> */}
+              <ArrowLeftToLine size={14} />
+              Home
+            </span>
+          </Link>
+          </div>
           <p className="text-zinc-400 text-sm font-medium leading-relaxed max-w-sm">
             Convert any Youtube playlist into a full fledged course. Paste the link to get started!
           </p>
@@ -174,24 +191,25 @@ const CreateCourse = () => {
             </div>
 
             {/* Input 3: Owner Name */}
-            <div className="group relative">
-              <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider ml-4 mb-2 block group-focus-within:text-[#DEFF0A] transition-colors">
+            {/* <div className="group relative">
+              <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider ml-4 mb-2 block transition-colors">
                 User
               </label>
-              <div className="relative transition-all duration-300 group-focus-within:transform group-focus-within:scale-[1.01]">
-                <div className="absolute inset-0 bg-linear-to-r from-[#DEFF0A] to-[#7000FF] rounded-2xl blur-md opacity-0 group-focus-within:opacity-30 transition-opacity duration-500"></div>
+              <div className="relative transition-all duration-300 ">
+                <div className="absolute inset-0 bg-linear-to-r from-[#DEFF0A] to-[#7000FF] rounded-2xl blur-md opacity-0 "></div>
                 <input
                   autoComplete="off"
                   type="text"
                   placeholder="e.g. The Design Lead"
                   name="owner"
-                  value={owner}
-                  onChange={ownerHandle}
+                  value={username}
+                  readOnly
+                  // onChange={ownerHandle}
                   required
-                  className="relative w-full bg-[#1A1A1A] text-white text-[15px] font-medium px-5 py-4 rounded-2xl border border-zinc-800 placeholder:text-zinc-600 focus:outline-none focus:border-[#DEFF0A] focus:bg-[#202020] focus:shadow-[0_0_20px_rgba(222,255,10,0.1)] transition-all duration-300"
+                  className="relative w-full focus:outline-none bg-[#1A1A1A] text-zinc-400 text-[15px] font-medium px-5 py-4 rounded-2xl border border-zinc-800 placeholder:text-zinc-600  "
                 />
               </div>
-            </div>
+            </div> */}
           </div>
 
           {/* Sassy Submit Button */}
@@ -222,7 +240,7 @@ const CreateCourse = () => {
                 />
               </svg>
             </button>
-
+            <div className="flex items-center justify-center">
             <p
               className={`text-sm font-medium leading-relaxed max-w-sm mt-5 text-center ${
                 !statusCode.code
@@ -238,9 +256,26 @@ const CreateCourse = () => {
                 ? ""
                 : `${statusCode.code} : ${statusCode.data}`}
             </p>
+            </div>
           </div>
         </form>
       </div>
+         : 
+         <div className="flex flex-col gap-10 items-center justify-center mt-30 mb-60">
+          <h1 className="text-5xl md:text-7xl font-black text-white tracking-tight leading-[0.9]">
+              Please login <br />
+              <span className="text-transparent bg-clip-text bg-linear-to-r from-[#DEFF0A] via-white to-zinc-500">
+                to continue
+              </span>
+            </h1>
+            <Link to='/login' 
+              className="cursor-pointer relative inline-flex items-center justify-center px-4 py-2 text-base font-black text-black transition-all duration-200 bg-[#DEFF0A] font-pj rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 hover:bg-[#CBEA00] active:scale-[0.98]">
+              <LogInIcon className="w-5 h-5 mr-2" strokeWidth={3}></LogInIcon>
+                LOGIN
+              </Link>
+         </div>
+        }
+      
 
       {/* Bottom Status Bar */}
       {/* <div className="mt-6 flex justify-between items-center px-6 text-xs font-bold text-zinc-600 uppercase tracking-widest">
@@ -253,7 +288,7 @@ const CreateCourse = () => {
     </div>
           
           
-        </div>
+    </div>
     
   );
 };
