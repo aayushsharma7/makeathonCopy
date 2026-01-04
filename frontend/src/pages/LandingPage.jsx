@@ -1,9 +1,54 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import  { useState, useEffect } from "react";
+import { Link, matchPath, useLocation, useNavigate } from "react-router-dom";
+import { 
+  Menu, 
+  X, 
+  Search, 
+  Bell, 
+  Plus, 
+  User, 
+  ChevronDown,
+  LayoutGrid,
+  Zap,
+  LogInIcon,
+  LogOut
+} from "lucide-react";
+import axios from "axios";
 
 const LandingPage = () => {
+
+      const [isLoggedIn, setIsLoggedIn] = useState(false);
+      const [infor, setInfor] = useState({});
+  
+      const navigate = useNavigate();
+  
+      const checkAuth = async () => {
+          try {
+          const responsePost = await axios.get(
+              `http://localhost:3000/auth/check`, {withCredentials: true}
+          );
+          console.log(responsePost.data);
+          if(responsePost.data.code === 200){
+              setIsLoggedIn(true);
+              setInfor(responsePost.data.info);
+              navigate('/courses')
+          }
+          else{
+            setIsLoggedIn(false);
+          }
+          } catch (error) {
+          console.log(error);
+          }
+      }
+  
+    useEffect(() => {
+      checkAuth();
+    },[]);
+
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0A0A0A] font-sans selection:bg-[#DEFF0A] selection:text-black overflow-hidden relative p-6">
+      {/* <Navbar /> */}
       {/* Background Ambient Glows */}
       <div className="absolute top-[-20%] left-[-10%] w-150 h-150 bg-[#DEFF0A] rounded-full blur-[180px] opacity-[0.15] pointer-events-none mix-blend-screen"></div>
       <div className="absolute bottom-[-20%] right-[-10%] w-125 h-125 bg-[#7000FF] rounded-full blur-[180px] opacity-[0.12] pointer-events-none mix-blend-screen"></div>
@@ -18,8 +63,8 @@ const LandingPage = () => {
       <div className="w-full max-w-115 relative z-10">
         {/* Decorative Elements */}
         {/* Main Card */}
-        <div className="flex items-center justify-center">
-          <Link to={"/signup"}>
+        {/* <div className="flex items-center justify-center">
+          <Link to={"/courses"}>
             <button className="w-50 bg-[#DEFF0A] hover:bg-[#CBEA00] active:scale-[0.98] text-black font-black text-[16px] tracking-wide py-5 rounded-2xl transition-all duration-300 flex items-center justify-center gap-3 overflow-hidden">
               <span className="relative z-10">LAUNCH COURSE</span>
               <svg
@@ -45,7 +90,7 @@ const LandingPage = () => {
               </svg>
             </button>
           </Link>
-        </div>
+        </div> */}
       </div>
     </div>
   );

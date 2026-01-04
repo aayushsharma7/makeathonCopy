@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Link, useNavigate } from "react-router-dom";
 import { User, Mail, Lock, ArrowRight, Github, Chrome } from "lucide-react";
 import axios from 'axios';
+import Navbar from '../components/Navbar';
 
 const SignUp = () => {
 
@@ -39,6 +40,7 @@ const SignUp = () => {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] font-sans selection:bg-[#DEFF0A] selection:text-black overflow-hidden relative flex items-center justify-center p-4">
+      {/* <Navbar /> */}
       
       {/* --- ATMOSPHERE LAYERS --- */}
       {/* 1. Ambient Glows */}

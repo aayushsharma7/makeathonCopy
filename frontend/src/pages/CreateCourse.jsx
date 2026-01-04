@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeftToLine, LogInIcon, LogOutIcon } from 'lucide-react';
+import Navbar from "../components/Navbar";
 
 const CreateCourse = () => {
 
@@ -10,9 +11,9 @@ const CreateCourse = () => {
   const [playlist, setPlaylist] = useState("");
   const [title, setTitle] = useState("");
   const [statusCode, setStatusCode] = useState({});
+  const [infor, setInfor] = useState({})
   const navigate = useNavigate();
   
-  const {username} = useParams()
 
   const playlistHandle = (e) => {
     setPlaylist(e.target.value);
@@ -27,11 +28,16 @@ const CreateCourse = () => {
   const checkAuth = async () => {
     try {
       const responsePost = await axios.get(
-        `http://localhost:3000/auth/check/${username}`, {withCredentials: true}
+        `http://localhost:3000/auth/check`, {withCredentials: true}
       );
-      console.log(responsePost.data)
+      console.log(responsePost.data);
       if(responsePost.data.code === 200){
         setIsLoggedIn(true);
+        setInfor(response.data.info);
+      }
+      else{
+        setIsLoggedIn(false);
+        navigate('/signup')
       }
     } catch (error) {
       console.log(error);
@@ -45,7 +51,7 @@ const CreateCourse = () => {
   const backendResponse = async (payload) => {
     try {
       const responsePost = await axios.post(
-        `http://localhost:3000/course/create/${username}`,
+        `http://localhost:3000/course/create`,
         payload,
         {withCredentials: true}
       );
@@ -62,7 +68,7 @@ const CreateCourse = () => {
     const payload = {
       url: playlist,
       name: title,
-      owner: username,
+      owner: infor.username,
     };
     const res = await backendResponse(payload);
     if (res.status === 409) {
@@ -78,7 +84,7 @@ const CreateCourse = () => {
         code: res.status,
         data: res.data,
       });
-      const url = `/courses/${username}`
+      const url = `/courses`
       navigate(url)
     }
 
@@ -86,7 +92,9 @@ const CreateCourse = () => {
 
   
   return (
+
     <div className="min-h-screen h-fit flex items-center justify-center bg-[#0A0A0A] font-sans selection:bg-[#DEFF0A] selection:text-black overflow-hidden relative p-4">
+      {/* <Navbar /> */}
           {/* Background Ambient Glows */}
           <div className="absolute top-[-20%] left-[-10%] w-150 h-150 bg-[#DEFF0A] rounded-full blur-[180px] opacity-[0.15] pointer-events-none mix-blend-screen"></div>
           <div className="absolute bottom-[-20%] right-[-10%] w-125 h-125 bg-[#7000FF] rounded-full blur-[180px] opacity-[0.12] pointer-events-none mix-blend-screen"></div>
@@ -96,7 +104,7 @@ const CreateCourse = () => {
           <div className="w-full md:max-w-135 relative z-10">
       {/* Decorative Elements */}
       {/* Main Card */}
-      {isLoggedIn ?
+      
          <div className="mt-10  bg-[#141414]/90 backdrop-blur-xl rounded-[36px] shadow-[0_35px_60px_-15px_rgba(0,0,0,0.6)] border border-white/10 p-8 md:p-10 overflow-hidden relative">
         {/* Header */}
         <div className="mb-10 relative ">
@@ -110,7 +118,7 @@ const CreateCourse = () => {
               in seconds!
             </span>
           </h1>
-          <Link to={`/courses/${username}`}>
+          <Link to={`/courses`}>
             <span className="py-1 px-3 rounded-full text-[14px] font-bold text-zinc-400 tracking-widest mb-4 flex gap-1 items-center">
               {/* div<ArrowLeftToLine  strokeWidth={1} absoluteStrokeWidth /> */}
               <ArrowLeftToLine size={14} />
@@ -202,7 +210,7 @@ const CreateCourse = () => {
                   type="text"
                   placeholder="e.g. The Design Lead"
                   name="owner"
-                  value={username}
+                  value={infor?.username}
                   readOnly
                   // onChange={ownerHandle}
                   required
@@ -260,21 +268,8 @@ const CreateCourse = () => {
           </div>
         </form>
       </div>
-         : 
-         <div className="flex flex-col gap-10 items-center justify-center mt-30 mb-60">
-          <h1 className="text-5xl md:text-7xl font-black text-white tracking-tight leading-[0.9]">
-              Please login <br />
-              <span className="text-transparent bg-clip-text bg-linear-to-r from-[#DEFF0A] via-white to-zinc-500">
-                to continue
-              </span>
-            </h1>
-            <Link to='/login' 
-              className="cursor-pointer relative inline-flex items-center justify-center px-4 py-2 text-base font-black text-black transition-all duration-200 bg-[#DEFF0A] font-pj rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 hover:bg-[#CBEA00] active:scale-[0.98]">
-              <LogInIcon className="w-5 h-5 mr-2" strokeWidth={3}></LogInIcon>
-                LOGIN
-              </Link>
-         </div>
-        }
+         
+        
       
 
       {/* Bottom Status Bar */}
