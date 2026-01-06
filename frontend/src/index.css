@@ -1,7 +1,11 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
 :root {
-  /* BACKGROUND: Optional, but good for testing */
-  /* COLORS: Darker, richer shades for better contrast on dark mode */
   --left-face: #9E2A26;   /* Deep Brick Red (was #D53A33) */
   --right-face: #B3780E;  /* Deep Amber (was #E79C10) */
   --top-face: #14686E;    /* Deep Teal (was #1d9099) */
@@ -109,4 +113,18 @@
       calc((var(--h) * 50% - 200%) + (var(--w) * 25% - 25%) + (var(--l) * 25% + 25%))
     );
   }
+}
+
+@keyframes grid-move {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+  
+    background-position: 10px 10px; 
+  }
+}
+
+.animate-grid {
+  animation: grid-move 3s linear infinite;
 }

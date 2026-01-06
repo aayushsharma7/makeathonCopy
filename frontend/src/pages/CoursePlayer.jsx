@@ -50,17 +50,19 @@ const CoursePlayer = () => {
 
   if (loading)
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0A0A0A] font-sans selection:bg-[#DEFF0A] selection:text-black overflow-hidden relative">
-        <div className="absolute top-[-20%] left-[-10%] w-150 h-150 bg-[#DEFF0A] rounded-full blur-[180px] opacity-[0.15] pointer-events-none mix-blend-screen"></div>
-        <div className="absolute bottom-[-20%] right-[-10%] w-125 h-125 bg-[#7000FF] rounded-full blur-[180px] opacity-[0.12] pointer-events-none mix-blend-screen"></div>
-        <div className="absolute top-[40%] left-[60%] w-75 h-75 bg-[#00E0FF] rounded-full blur-[150px] opacity-[0.08] pointer-events-none mix-blend-screen"></div>
-        {/* Noise Texture */}
+      <div className="flex items-center justify-center min-h-screen  selection:bg-[#2563EB] selection:text-black overflow-hidden relative">
         <div
-          className="fixed inset-0 pointer-events-none opacity-[0.03]"
+          className="absolute inset-0 z-0 animate-grid"
           style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='6.29' numOctaves='6' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
+            backgroundColor: "#0a0a0a",
+            backgroundImage: `
+      radial-gradient(circle at 25% 25%, #222222 0.5px, transparent 1px),
+      radial-gradient(circle at 75% 75%, #111111 0.5px, transparent 1px)
+    `,
+            backgroundSize: "10px 10px",
+            imageRendering: "pixelated",
           }}
-        ></div>
+        />
         <div class="container">
           <div class="h1Container">
             <div class="cube h1 w1 l1">
@@ -233,8 +235,7 @@ const CoursePlayer = () => {
       </div>
     );
   return (
-    <div className="min-h-screen bg-[#0A0A0A] font-sans selection:bg-[#DEFF0A] selection:text-black text-white overflow-hidden relative flex flex-col">
-      {/* --- CSS FOR CUSTOM SCROLLBAR --- */}
+    <div className="min-h-screen  selection:bg-[#2563EB] selection:text-black text-white overflow-hidden relative flex flex-col">
       <style>{`
         /* Width */
         ::-webkit-scrollbar {
@@ -243,7 +244,7 @@ const CoursePlayer = () => {
         }
         /* Track */
         ::-webkit-scrollbar-track {
-          background: rgba(255, 255, 255, 0.02);
+          background: black;
           border-radius: 4px;
         }
         /* Handle */
@@ -252,21 +253,20 @@ const CoursePlayer = () => {
           border-radius: 4px;
           transition: background 0.3s ease;
         }
-        /* Handle on hover */
-        ::-webkit-scrollbar-thumb:hover {
-          background: #DEFF0A; /* Neon Glow */
-        }
       `}</style>
 
-      {/* --- BACKGROUND FX --- */}
-      <div className="absolute top-[-20%] left-[-10%] w-200 h-200 bg-[#DEFF0A] rounded-full blur-[180px] opacity-[0.06] pointer-events-none mix-blend-screen"></div>
-      <div className="absolute bottom-[-20%] right-[-10%] w-150 h-150 bg-[#7000FF] rounded-full blur-[180px] opacity-[0.06] pointer-events-none mix-blend-screen"></div>
       <div
-        className="fixed inset-0 pointer-events-none opacity-[0.04] z-0"
+        className="absolute inset-0 z-0 animate-grid" 
         style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='6.29' numOctaves='6' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
+          backgroundColor: "#0a0a0a",
+          backgroundImage: `
+      radial-gradient(circle at 25% 25%, #222222 0.5px, transparent 1px),
+      radial-gradient(circle at 75% 75%, #111111 0.5px, transparent 1px)
+    `,
+          backgroundSize: "10px 10px", 
+          imageRendering: "pixelated",
         }}
-      ></div>
+      />
 
       {/* --- CONTENT WRAPPER --- */}
       <div className="relative z-10 max-w-450 mx-auto p-4 md:p-4 flex flex-col w-full">
@@ -275,7 +275,7 @@ const CoursePlayer = () => {
           <div className="flex items-center gap-4">
             <Link
               to="/courses"
-              className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
+              className="w-10 h-10 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
             >
               <ChevronLeft className="w-5 h-5 text-zinc-400 group-hover:text-white" />
             </Link>
@@ -284,7 +284,7 @@ const CoursePlayer = () => {
                 {name}
               </h1>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#DEFF0A]"></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
                 <p className="text-xs text-zinc-400 font-medium tracking-wide uppercase">
                   Episode {activeIndex}
                 </p>
@@ -325,7 +325,7 @@ const CoursePlayer = () => {
           </div>
 
           {/* RIGHT: PLAYLIST WITH THUMBNAILS */}
-          <div className="h-fit md:max-h-150 max-h-90 lg:col-span-4 flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-3xl overflow-hidden">
+          <div className="h-fit md:max-h-150 max-h-90 lg:col-span-4 flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden">
             {/* Header */}
             <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0">
               <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
@@ -348,7 +348,7 @@ const CoursePlayer = () => {
                     group flex items-center gap-4 p-3 rounded-xl transition-all duration-200 cursor-pointer border
                     ${
                       activeIndex === index
-                        ? "bg-[#DEFF0A]/5 border-[#DEFF0A]/20"
+                        ? "bg-[#2563EB]/5 border-[#2563EB]/20"
                         : "bg-transparent border-transparent hover:bg-white/5"
                     }
                   `}
@@ -356,10 +356,10 @@ const CoursePlayer = () => {
                   {/* 1. Status Indicator Icon */}
                   <div
                     className={`
-                    w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-transform duration-500 
+                    w-8 h-8 rounded-md flex items-center justify-center shrink-0 transition-transform duration-500 
                     ${
                       activeIndex === index
-                        ? "bg-[#DEFF0A] text-black shadow-[0_0_10px_rgba(222,255,10,0.2)]"
+                        ? "bg-[#2563EB] text-black "
                         : "bg-transparent text-zinc-700 border border-white/5"
                     }
               
@@ -375,7 +375,7 @@ const CoursePlayer = () => {
                   </div>
 
                   {/* 2. NEW: Video Thumbnail */}
-                  <div className="shrink-0 relative rounded-lg overflow-hidden border border-white/10 w-20 h-11 bg-zinc-900">
+                  <div className="shrink-0 relative rounded-md overflow-hidden border border-white/10 w-20 h-11 bg-zinc-900">
                     <img
                       src={video.thumbnail}
                       alt={video.title}
@@ -402,14 +402,14 @@ const CoursePlayer = () => {
                         size={10}
                         className={
                           video.status === "active"
-                            ? "text-[#DEFF0A]"
+                            ? "text-[#2563EB]"
                             : "text-zinc-600"
                         }
                       />
                       <span
                         className={`text-[11px] font-medium ${
                           video.status === "active"
-                            ? "text-[#DEFF0A]"
+                            ? "text-[#2563EB]"
                             : "text-zinc-600"
                         }`}
                       >

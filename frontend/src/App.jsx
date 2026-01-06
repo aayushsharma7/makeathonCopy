@@ -1,4 +1,4 @@
-import { Route, Routes, useLocation } from "react-router-dom";
+import { matchPath, Route, Routes, useLocation } from "react-router-dom";
 import HomePage from './pages/HomePage';
 import CreateCourse from './pages/CreateCourse';
 import LandingPage from './pages/LandingPage';
@@ -8,10 +8,12 @@ import Login from "./pages/Login";
 import Navbar from "./components/Navbar";
 
 const App = () => {
-
+const location = useLocation()
   return (
-    <div>
-      <Navbar />
+    <div className="bg-[#18181B]">
+      {
+        matchPath('/courses/:name/:id',location.pathname) ? '': <Navbar />
+      }
       <Routes>
         <Route path='/' element={<LandingPage />} />
         <Route path='/signup' element={<SignUp />} />

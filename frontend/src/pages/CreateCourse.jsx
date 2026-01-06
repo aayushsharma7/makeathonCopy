@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeftToLine, LogInIcon, LogOutIcon } from 'lucide-react';
+import { ArrowLeftToLine, ArrowRight, ChartNoAxesCombinedIcon, LogInIcon, LogOutIcon, LucideAlignCenter, Mail } from 'lucide-react';
 import Navbar from "../components/Navbar";
 
 const CreateCourse = () => {
@@ -93,38 +93,44 @@ const CreateCourse = () => {
   
   return (
 
-    <div className="min-h-screen h-fit flex items-center justify-center bg-[#0A0A0A] font-sans selection:bg-[#DEFF0A] selection:text-black overflow-hidden relative p-4">
+    <div className="min-h-screen h-fit flex items-center justify-center bg-[#0A0A0A]  selection:bg-[#2563EB] selection:text-black overflow-hidden relative p-4">
       {/* <Navbar /> */}
-          {/* Background Ambient Glows */}
-          <div className="absolute top-[-20%] left-[-10%] w-150 h-150 bg-[#DEFF0A] rounded-full blur-[180px] opacity-[0.15] pointer-events-none mix-blend-screen"></div>
-          <div className="absolute bottom-[-20%] right-[-10%] w-125 h-125 bg-[#7000FF] rounded-full blur-[180px] opacity-[0.12] pointer-events-none mix-blend-screen"></div>
-          <div className="absolute top-[40%] left-[60%] w-75 h-75 bg-[#00E0FF] rounded-full blur-[150px] opacity-[0.08] pointer-events-none mix-blend-screen"></div>
-          {/* Noise Texture */}
-          <div className="fixed inset-0 pointer-events-none opacity-[0.03]" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='6.29' numOctaves='6' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}></div>
+      <div
+  className="absolute inset-0 z-0 animate-grid" // <--- Added class here
+  style={{
+    backgroundColor: '#0a0a0a',
+    backgroundImage: `
+      radial-gradient(circle at 25% 25%, #222222 0.5px, transparent 1px),
+      radial-gradient(circle at 75% 75%, #111111 0.5px, transparent 1px)
+    `,
+    backgroundSize: '10px 10px', // The animation moves exactly this distance
+    imageRendering: 'pixelated',
+  }}
+/>
           <div className="w-full md:max-w-135 relative z-10">
       {/* Decorative Elements */}
       {/* Main Card */}
       
-         <div className="mt-10  bg-[#141414]/90 backdrop-blur-xl rounded-[36px] shadow-[0_35px_60px_-15px_rgba(0,0,0,0.6)] border border-white/10 p-8 md:p-10 overflow-hidden relative">
+         <div className="md:mt-10 p-4 md:p-10 overflow-hidden relative">
         {/* Header */}
         <div className="mb-10 relative ">
           
           
           
           <div className="flex justify-between">
-          <h1 className="text-4xl font-black text-white tracking-tight leading-none mb-3">
+          <h1 className="text-4xl font-black  text-white tracking-tight leading-none mb-3">
             Create a course  <br />
-            <span className="text-transparent bg-clip-text bg-linear-to-r from-[#DEFF0A] to-[#ffffff]">
+            <span className="text-transparent bg-clip-text bg-linear-to-r from-[#2563EB] to-[#ffffff]">
               in seconds!
             </span>
           </h1>
-          <Link to={`/courses`}>
+          {/* <Link to={`/courses`}>
             <span className="py-1 px-3 rounded-full text-[14px] font-bold text-zinc-400 tracking-widest mb-4 flex gap-1 items-center">
-              {/* div<ArrowLeftToLine  strokeWidth={1} absoluteStrokeWidth /> */}
+              div<ArrowLeftToLine  strokeWidth={1} absoluteStrokeWidth />
               <ArrowLeftToLine size={14} />
               Home
             </span>
-          </Link>
+          </Link> */}
           </div>
           <p className="text-zinc-400 text-sm font-medium leading-relaxed max-w-sm">
             Convert any Youtube playlist into a full fledged course. Paste the link to get started!
@@ -135,12 +141,12 @@ const CreateCourse = () => {
         <form onSubmit={handleSubmit}>
           <div className="space-y-6">
             {/* Input 1: Playlist Link */}
-            <div className="group relative">
-              <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider ml-4 mb-2 block group-focus-within:text-[#DEFF0A] transition-colors">
+            {/* <div className="group relative">
+              <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider ml-4 mb-2 block group-focus-within:text-[#2563EB] transition-colors">
                 YouTube Playlist URL
               </label>
               <div className="relative transition-all duration-300 group-focus-within:transform group-focus-within:scale-[1.01]">
-                <div className="absolute inset-0 bg-linear-to-r from-[#DEFF0A] to-[#7000FF] rounded-2xl blur-md opacity-0 group-focus-within:opacity-30 transition-opacity duration-500"></div>
+                <div className="absolute inset-0 bg-linear-to-r from-[#2563EB] to-[#7000FF] rounded-2xl blur-md opacity-0 group-focus-within:opacity-30 transition-opacity duration-500"></div>
                 <input
                   autoComplete="off"
                   type="text"
@@ -149,9 +155,9 @@ const CreateCourse = () => {
                   value={playlist}
                   onChange={playlistHandle}
                   required
-                  className="relative w-full bg-[#1A1A1A] text-white text-[15px] font-medium px-5 py-4 rounded-2xl border border-zinc-800 placeholder:text-zinc-600 focus:outline-none focus:border-[#DEFF0A] focus:bg-[#202020] focus:shadow-[0_0_20px_rgba(222,255,10,0.1)] transition-all duration-300"
+                  className="relative w-full bg-[#1A1A1A] text-white text-[15px] font-medium px-5 py-4 rounded-sm border border-zinc-800 placeholder:text-zinc-600 focus:outline-none focus:border-[#2563EB] focus:bg-[#202020] focus:shadow-[0_0_20px_rgba(222,255,10,0.1)] transition-all duration-300"
                 />
-                <div className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none group-focus-within:text-[#DEFF0A] transition-colors duration-300">
+                <div className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none group-focus-within:text-[#2563EB] transition-colors duration-300">
                   <svg
                     width="20"
                     height="20"
@@ -176,15 +182,59 @@ const CreateCourse = () => {
                   </svg>
                 </div>
               </div>
+            </div> */}
+            
+            <div>
+              <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider ml-4 mb-2 block group-focus-within:text-[#2563EB] transition-colors">
+                  YouTube Playlist URL
+              </label>
+              <div className="group relative">
+                <div className="absolute inset-0 bg-linear-to-r from-[#2563EB] to-[#7000FF] rounded-sm blur opacity-0 group-focus-within:opacity-20 transition-opacity duration-500"></div>
+                <div className="relative flex items-center bg-[#111010] border border-zinc-800 rounded-sm px-4 py-4 focus-within:border-[#2563EB] focus-within:bg-[#111010] transition-all duration-300">
+                    <Mail size={20} className="text-zinc-500 mr-3 group-focus-within:text-[#2563EB] transition-colors" />
+                    <input 
+                      autoComplete="off"
+                    type="text"
+                    placeholder="https://youtube.com/playlist?list="
+                    name="playlist"
+                    value={playlist}
+                    onChange={playlistHandle}
+                    required
+                      className="bg-transparent w-full text-white font-medium placeholder:text-zinc-600 focus:outline-none"
+                    />
+                </div>
+              </div>
             </div>
+            <div>
+              <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider ml-4 mb-2 block group-focus-within:text-[#2563EB] transition-colors">
+                  Course Title
+              </label>
+              <div className="group relative">
+                <div className="absolute inset-0 bg-linear-to-r from-[#2563EB] to-[#7000FF] rounded-sm blur opacity-0 group-focus-within:opacity-20 transition-opacity duration-500"></div>
+                <div className="relative flex items-center bg-[#111010] border border-zinc-800 rounded-sm px-4 py-4 focus-within:border-[#2563EB] focus-within:bg-[#111010] transition-all duration-300">
+                    <LucideAlignCenter size={20} className="text-zinc-500 mr-3 group-focus-within:text-[#2563EB] transition-colors" />
+                    <input 
+                      autoComplete="off"
+                  type="text"
+                  placeholder="e.g. React JS"
+                  name="title"
+                  value={title}
+                  onChange={titleHandle}
+                  required
+                      className="bg-transparent w-full text-white font-medium placeholder:text-zinc-600 focus:outline-none"
+                    />
+                </div>
+              </div>
+            </div>
+            
 
             {/* Input 2: Course Name */}
-            <div className="group relative">
-              <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider ml-4 mb-2 block group-focus-within:text-[#DEFF0A] transition-colors">
+            {/* <div className="group relative">
+              <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider ml-4 mb-2 block group-focus-within:text-[#2563EB] transition-colors">
                 Course Title
               </label>
               <div className="relative transition-all duration-300 group-focus-within:transform group-focus-within:scale-[1.01]">
-                <div className="absolute inset-0 bg-linear-to-r from-[#DEFF0A] to-[#7000FF] rounded-2xl blur-md opacity-0 group-focus-within:opacity-30 transition-opacity duration-500"></div>
+                <div className="absolute inset-0 bg-linear-to-r from-[#2563EB] to-[#7000FF] rounded-2xl blur-md opacity-0 group-focus-within:opacity-30 transition-opacity duration-500"></div>
                 <input
                   autoComplete="off"
                   type="text"
@@ -193,10 +243,10 @@ const CreateCourse = () => {
                   value={title}
                   onChange={titleHandle}
                   required
-                  className="relative w-full bg-[#1A1A1A] text-white text-[15px] font-medium px-5 py-4 rounded-2xl border border-zinc-800 placeholder:text-zinc-600 focus:outline-none focus:border-[#DEFF0A] focus:bg-[#202020] focus:shadow-[0_0_20px_rgba(222,255,10,0.1)] transition-all duration-300"
+                  className="relative w-full bg-[#1A1A1A] text-white text-[15px] font-medium px-5 py-4 rounded-sm border border-zinc-800 placeholder:text-zinc-600 focus:outline-none focus:border-[#2563EB] focus:bg-[#202020] focus:shadow-[0_0_20px_rgba(222,255,10,0.1)] transition-all duration-300"
                 />
               </div>
-            </div>
+            </div> */}
 
             {/* Input 3: Owner Name */}
             {/* <div className="group relative">
@@ -222,32 +272,14 @@ const CreateCourse = () => {
 
           {/* Sassy Submit Button */}
           <div className="pt-10 relative group ">
-            
-            <button 
-            className="cursor-pointer relative w-full bg-[#DEFF0A] hover:bg-[#CBEA00] active:scale-[0.98] text-black font-black text-[16px] tracking-wide py-5 rounded-2xl transition-all duration-300 flex items-center justify-center gap-3 overflow-hidden">
-              <span className="relative z-10">CREATE COURSE</span>
-              <svg
-                className="w-5 h-5 relative z-10 group-hover:translate-x-1 transition-transform"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M13 7L18 12L13 17"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M6 12H17"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+            <button className="w-full mt-6 bg-[#2563EB] hover:bg-[#2543EB] text-black font-black text-lg py-4 rounded-md transition-all active:scale-[0.98] flex items-center justify-center gap-2 group relative overflow-hidden">
+               <span className="relative z-10">CREATE COURSE</span>
+               <ArrowRight className="w-5 h-5 relative z-10 group-hover:translate-x-1 transition-transform" strokeWidth={3} />
+               
+               {/* Button Shine Effect */}
+               <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 skew-y-12"></div>
             </button>
+            
             <div className="flex items-center justify-center">
             <p
               className={`text-sm font-medium leading-relaxed max-w-sm mt-5 text-center ${

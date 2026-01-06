@@ -39,33 +39,33 @@ const SignUp = () => {
     }
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] font-sans selection:bg-[#DEFF0A] selection:text-black overflow-hidden relative flex items-center justify-center p-4">
-      {/* <Navbar /> */}
-      
-      {/* --- ATMOSPHERE LAYERS --- */}
-      {/* 1. Ambient Glows */}
-      <div className="absolute top-[-10%] left-[-10%] w-150 h-150 bg-[#DEFF0A] rounded-full blur-[180px] opacity-[0.12] pointer-events-none mix-blend-screen"></div>
-      <div className="absolute bottom-[-10%] right-[-5%] w-125 h-125 bg-[#7000FF] rounded-full blur-[180px] opacity-[0.1] pointer-events-none mix-blend-screen"></div>
-      
-      {/* 2. Noise Texture */}
-      <div 
-        className="fixed inset-0 pointer-events-none opacity-[0.04] z-0" 
-        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='6.29' numOctaves='6' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}
-      ></div>
+    <div className="min-h-screen selection:bg-[#2563EB] selection:text-black overflow-hidden relative flex items-center justify-center p-4">
+     <div
+  className="absolute inset-0 z-0 animate-grid" // <--- Added class here
+  style={{
+    backgroundColor: '#0a0a0a',
+    backgroundImage: `
+      radial-gradient(circle at 25% 25%, #222222 0.5px, transparent 1px),
+      radial-gradient(circle at 75% 75%, #111111 0.5px, transparent 1px)
+    `,
+    backgroundSize: '10px 10px', // The animation moves exactly this distance
+    imageRendering: 'pixelated',
+  }}
+/>
 
       {/* --- MAIN CARD --- */}
       <div className="w-full max-w-lg relative z-10 mt-10">
         
-        <div className="bg-[#141414]/90 backdrop-blur-2xl rounded-4xl shadow-[0_40px_80px_-20px_rgba(0,0,0,0.8)] border border-white/10 p-8 md:p-10 relative overflow-hidden group/card">
+        <div className=" p-2 md:p-10 relative overflow-hidden group/card">
           
           {/* Subtle internal gradient glow */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-2 bg-linear-to-r from-transparent via-[#DEFF0A]/50 to-transparent blur-lg opacity-0 group-hover/card:opacity-100 transition-opacity duration-700"></div>
+          {/* <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-2 bg-linear-to-r from-transparent via-[#DEFF0A]/50 to-transparent blur-lg opacity-0 group-hover/card:opacity-100 transition-opacity duration-700"></div> */}
 
           {/* HEADER */}
           <div className="mb-10 text-center relative">
             <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight mb-2">
               Join our <br />
-              <span className="text-transparent bg-clip-text bg-linear-to-r from-[#DEFF0A] via-white to-zinc-400">
+              <span className="text-transparent bg-clip-text bg-linear-to-r from-[#2563EB] via-white to-zinc-400">
                 Platform.
               </span>
             </h1>
@@ -79,9 +79,9 @@ const SignUp = () => {
             
             {/* 1. Name Input */}
             <div className="group relative">
-               <div className="absolute inset-0 bg-linear-to-r from-[#DEFF0A] to-[#7000FF] rounded-2xl blur opacity-0 group-focus-within:opacity-20 transition-opacity duration-500"></div>
-               <div className="relative flex items-center bg-[#1A1A1A] border border-zinc-800 rounded-2xl px-4 py-4 focus-within:border-[#DEFF0A] focus-within:bg-[#202020] transition-all duration-300">
-                  <User size={20} className="text-zinc-500 mr-3 group-focus-within:text-[#DEFF0A] transition-colors" />
+               <div className="absolute inset-0 bg-linear-to-r from-[#2563EB] to-[#7000FF] rounded-sm blur opacity-0 group-focus-within:opacity-20 transition-opacity duration-500"></div>
+               <div className="relative flex items-center bg-[#111010] border border-zinc-800 rounded-sm px-4 py-4 focus-within:border-[#2563EB] focus-within:bg-[#111010] transition-all duration-300">
+                  <User size={20} className="text-zinc-500 mr-3 group-focus-within:text-[#2563EB] transition-colors" />
                   <input 
                     type="text" 
                     placeholder="Username"
@@ -96,9 +96,9 @@ const SignUp = () => {
 
             {/* 2. Email Input */}
             <div className="group relative">
-               <div className="absolute inset-0 bg-linear-to-r from-[#DEFF0A] to-[#7000FF] rounded-2xl blur opacity-0 group-focus-within:opacity-20 transition-opacity duration-500"></div>
-               <div className="relative flex items-center bg-[#1A1A1A] border border-zinc-800 rounded-2xl px-4 py-4 focus-within:border-[#DEFF0A] focus-within:bg-[#202020] transition-all duration-300">
-                  <Mail size={20} className="text-zinc-500 mr-3 group-focus-within:text-[#DEFF0A] transition-colors" />
+               <div className="absolute inset-0 bg-linear-to-r from-[#2563EB] to-[#7000FF] rounded-sm blur opacity-0 group-focus-within:opacity-20 transition-opacity duration-500"></div>
+               <div className="relative flex items-center bg-[#111010] border border-zinc-800 rounded-sm px-4 py-4 focus-within:border-[#2563EB] focus-within:bg-[#111010] transition-all duration-300">
+                  <Mail size={20} className="text-zinc-500 mr-3 group-focus-within:text-[#2563EB] transition-colors" />
                   <input 
                     type="email" 
                     value={email}
@@ -113,9 +113,9 @@ const SignUp = () => {
 
             {/* 3. Password Input */}
             <div className="group relative">
-               <div className="absolute inset-0 bg-linear-to-r from-[#DEFF0A] to-[#7000FF] rounded-2xl blur opacity-0 group-focus-within:opacity-20 transition-opacity duration-500"></div>
-               <div className="relative flex items-center bg-[#1A1A1A] border border-zinc-800 rounded-2xl px-4 py-4 focus-within:border-[#DEFF0A] focus-within:bg-[#202020] transition-all duration-300">
-                  <Lock size={20} className="text-zinc-500 mr-3 group-focus-within:text-[#DEFF0A] transition-colors" />
+               <div className="absolute inset-0 bg-linear-to-r from-[#2563EB] to-[#7000FF] rounded-sm blur opacity-0 group-focus-within:opacity-20 transition-opacity duration-500"></div>
+               <div className="relative flex items-center bg-[#111010] border border-zinc-800 rounded-sm px-4 py-4 focus-within:border-[#2563EB] focus-within:bg-[#111010] transition-all duration-300">
+                  <Lock size={20} className="text-zinc-500 mr-3 group-focus-within:text-[#2563EB] transition-colors" />
                   <input 
                     type="password" 
                     value={password}
@@ -129,8 +129,8 @@ const SignUp = () => {
             </div>
 
             {/* ACTION BUTTON */}
-            <button className="w-full mt-6 bg-[#DEFF0A] hover:bg-[#CBEA00] text-black font-black text-lg py-4 rounded-2xl transition-all active:scale-[0.98] flex items-center justify-center gap-2 group relative overflow-hidden">
-               <span className="relative z-10">INITIALIZE ACCOUNT</span>
+            <button className="w-full mt-6 bg-[#2563EB] hover:bg-[#2543EB] text-black font-black text-lg py-4 rounded-md transition-all active:scale-[0.98] flex items-center justify-center gap-2 group relative overflow-hidden">
+               <span className="relative z-10">CREATE ACCOUNT</span>
                <ArrowRight className="w-5 h-5 relative z-10 group-hover:translate-x-1 transition-transform" strokeWidth={3} />
                
                {/* Button Shine Effect */}
@@ -168,7 +168,7 @@ const SignUp = () => {
           <div className="mt-8 text-center">
              <p className="text-zinc-500 text-sm font-medium">
                Already have access?{' '}
-               <Link to="/login" className="text-[#DEFF0A] font-bold hover:underline decoration-2 underline-offset-4">
+               <Link to="/login" className="text-[#2563EB] font-bold underline decoration-2 underline-offset-4">
                  Log in here
                </Link>
              </p>

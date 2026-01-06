@@ -1,78 +1,51 @@
-import  { useState, useEffect } from "react";
-import { Link, matchPath, useLocation, useNavigate } from "react-router-dom";
-import { 
-  Menu, 
-  X, 
-  Search, 
-  Bell, 
-  Plus, 
-  User, 
-  ChevronDown,
-  LayoutGrid,
-  Zap,
-  LogInIcon,
-  LogOut
-} from "lucide-react";
+import { useState, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+// Keep your existing imports
 import axios from "axios";
 
 const Navbar = () => {
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
-    const [infor, setInfor] = useState({});
-    const [isScrolled, setIsScrolled] = useState(false);
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-    const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [infor, setInfor] = useState({});
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-    const navigate = useNavigate()
+  const navigate = useNavigate();
+  const location = useLocation();
 
-    const location = useLocation();
-
-    
-    const checkAuth = async () => {
-        try {
-        const responsePost = await axios.get(
-            `http://localhost:3000/auth/check`, {withCredentials: true}
-        );
-        console.log(responsePost.data);
-        if(responsePost.data.code === 200){
-            setIsLoggedIn(true);
-            setInfor(responsePost.data.info);
-        }
-        else{
-          setIsLoggedIn(false);
-        }
-        } catch (error) {
-        console.log(error);
-        }
-    }
-
-    const paths = [
-      {
-        name: 'Home',path: '/'
-      }, 
-      {
-        name: 'Courses',path: '/courses'
-      }, 
-      {
-        name: 'Create',path: '/create'
-      }
-    ]
-
-  useEffect(() => {
-    checkAuth();
-    console.log(location)
-  },[location.pathname]);
-
-
-  
-
-  // Detect scroll to add background blur/border
   useEffect(() => {
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20);
+      if (window.scrollY > 20) {
+        setIsScrolled(true);
+      } else {
+        setIsScrolled(false);
+      }
     };
+
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  const checkAuth = async () => {
+    try {
+      const responsePost = await axios.get(`http://localhost:3000/auth/check`, {
+        withCredentials: true,
+      });
+      if (responsePost.data.code === 200) {
+        setIsLoggedIn(true);
+        setInfor(responsePost.data.info);
+      } else {
+        setIsLoggedIn(false);
+      }
+    } catch (error) {
+      console.log(error);
+      setIsLoggedIn(false);
+    }
+  };
+
+  useEffect(() => {
+    checkAuth();
+    setIsMobileMenuOpen(false);
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     if (isLoggedIn) {
@@ -85,13 +58,11 @@ const Navbar = () => {
       );
       console.log(apiRes);
       if (apiRes.data.code === 200) {
-        setIsProfileMenuOpen(false)
         navigate("/login");
       } else {
         console.log(apiRes);
       }
     } else {
-      setIsProfileMenuOpen(false)
       navigate("/login");
     }
   };
@@ -99,186 +70,200 @@ const Navbar = () => {
   return (
     <>
       <nav
-        className={`${matchPath('/courses/:name/:id',location.pathname) ? 'hidden':''} fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b md:px-6  ${
-          isScrolled
-            ? "bg-[#0A0A0A]/80 backdrop-blur-xl border-white/10 py-3"
-            : "bg-transparent border-transparent py-5"
-        }`}
+        className={`fixed z-50 transition-all duration-500 ease-in-out flex justify-center items-start 
+          ${
+            isScrolled
+              ? "top-5 left-0 right-0 md:px-5 "
+              : "top-0 left-0 right-0 md:px-10"
+          }
+        `}
       >
-        <div className="max-w-450 mx-auto px-6">
-          <div className="flex items-center justify-between">
-            
-            {/* 1. LEFT: LOGO */}
-            <div className="flex items-center gap-12">
-              <Link to="/" className="group flex items-center gap-2">
-                <div className="relative flex items-center justify-center w-10 h-10 bg-white/5 rounded-xl border border-white/10 group-hover:border-[#DEFF0A]/50 transition-colors">
-                  <Zap size={20} className="text-white group-hover:text-[#DEFF0A] transition-colors" fill="currentColor" />
-                  {/* Glowing Dot */}
-                  <div className="absolute -top- -right-1 w-3 h-3 bg-[#DEFF0A] rounded-full border-2 border-[#0A0A0A] group-hover:animate-pulse"></div>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-lg font-black text-white tracking-tight leading-none">
-                    VAULT
-                  </span>
-                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-[0.2em] group-hover:text-[#DEFF0A] transition-colors">
-                    System v2.0
-                  </span>
-                </div>
-              </Link>
-
-              {/* DESKTOP NAV LINKS */}
-              <div className="hidden lg:flex items-center gap-8">
-                
-                {paths.map((item,idx) => (
-                  <Link 
-                    key={idx} 
-                    to={item.path}
-                    className={`text-sm ${!isLoggedIn  ? 'hidden' : ''} font-bold text-zinc-400 hover:text-white transition-colors tracking-wide relative group/link`}
-                  >
-                    {item.name}
-                    <span className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-1 h-1 bg-[#DEFF0A] rounded-full opacity-0 group-hover/link:opacity-100 transition-opacity"></span>
-                  </Link>
-                ))}
-              </div>
-            </div>
-
-            {/* 2. RIGHT: ACTIONS */}
-            <div className="flex items-center gap-4 md:gap-6">
-              
-              {/* Search (Desktop) */}
-              {/* <div className="hidden md:flex group relative">
-                <input 
-                  type="text" 
-                  placeholder="Search..." 
-                  className="bg-transparent border-b border-zinc-700 text-sm text-white px-0 py-1 w-0 group-hover:w-48 focus:w-48 focus:border-[#DEFF0A] transition-all duration-300 focus:outline-none placeholder:text-zinc-600"
+        <div
+          className={`
+            relative flex items-center justify-between transition-all duration-500 ease-in-out
+            ${
+              isScrolled
+                ? "w-[90%] md:w-[65%] lg:w-[55%] bg-[#18181B]/80 backdrop-blur-xl border border-white/10 rounded-xl py-3 px-6 shadow-lg shadow-black/20"
+                : "w-full bg-transparent border-transparent py-6 px-6 md:px-12"
+            }
+          `}
+        >
+          {/* --- Left: Logo --- */}
+          <Link
+            to={isLoggedIn ? '/courses':'/'}
+            className="flex items-center gap-2 cursor-pointer select-none group"
+          >
+            {/* Logo Icon */}
+            <div className="w-7 h-7 flex items-center justify-center transition-transform group-hover:scale-110">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                className="w-full h-full"
+              >
+                <path
+                  d="M13 4H20C21.1046 4 22 4.89543 22 6V18C22 19.1046 21.1046 20 20 20H13V4Z"
+                  fill="#2563EB"
                 />
-                <button className="text-zinc-400 group-hover:text-white transition-colors">
-                  <Search size={20} />
-                </button>
-              </div> */}
-
-              {/* Notification Bell */}
-              {/* <button className="relative text-zinc-400 hover:text-white transition-colors">
-                <Bell size={20} />
-                <span className="absolute top-0 right-0 w-2 h-2 bg-[#7000FF] rounded-full ring-2 ring-[#0A0A0A]"></span>
-              </button> */}
-
-              {/* <div className="h-6 w-[1px] bg-zinc-800 hidden md:block"></div> */}
-
-              {/* Create Button */}
-              {isLoggedIn ? <Link to={`/create`} className="hidden md:flex">
-                <button className="group relative px-5 py-2.5 bg-[#DEFF0A] hover:bg-[#CBEA00] text-black font-black text-xs uppercase tracking-wider rounded-lg transition-all active:scale-95 flex items-center gap-2">
-                  <Plus size={16} strokeWidth={3} />
-                  <span>Create</span>
-                </button>
-              </Link>
-              : 
-              <div className="flex gap-2">
-              <Link to="/login" className="hidden md:flex">
-                <button className="group cursor-pointer relative px-5 py-2.5 bg-zinc-900 border border-zinc-800 text-gray-200 font-black text-xs uppercase tracking-wider rounded-lg transition-all active:scale-95 flex items-center gap-2">
-                  <LogInIcon size={16} strokeWidth={3} />
-                  <span>Login</span>
-                </button>
-              </Link>
-              <Link to="/signup" className="hidden md:flex">
-                <button className="group cursor-pointer relative px-5 py-2.5 bg-[#DEFF0A] hover:bg-[#CBEA00] text-black font-black text-xs uppercase tracking-wider rounded-lg transition-all active:scale-95 flex items-center gap-2">
-                  <LogInIcon size={16} strokeWidth={3} />
-                  <span>Sign Up</span>
-                </button>
-              </Link>
-              </div>
-              }
-              
-
-              {/* Profile Avatar */}
-              {/* Profile Avatar Section */}
-              <div className={`flex ${isLoggedIn ? '': 'hidden'}  items-center gap-3 pl-2 relative`}>
-                
-                {/* 1. Avatar Image (Clickable) */}
-                <div className="relative">
-                  {/* 1. Trigger (Avatar) */}
-                  <div 
-                    onClick={() => {
-                      setIsProfileMenuOpen(!isProfileMenuOpen)
-                    }}
-                    className={`w-10 h-10 rounded-full bg-zinc-900 border overflow-hidden cursor-pointer transition-all duration-200 ${
-                      isProfileMenuOpen 
-                        ? 'border-[#DEFF0A] shadow-[0_0_10px_rgba(222,255,10,0.2)]' // Added subtle neon glow when open
-                        : 'border-white/10 hover:border-[#DEFF0A]'
-                    }`}
-                  >
-                    <img 
-                      src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" 
-                      alt="User" 
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-
-                  {/* 2. The Dropdown Menu */}
-                  {isProfileMenuOpen && (
-                    <div className="absolute top-full right-0 mt-4 w-52 bg-[#0A0A0A] border border-zinc-800 rounded-xl shadow-2xl py-2 z-50 overflow-hidden ring-1 ring-white/5">
-                      
-                      {/* Profile Link - Hover turns Neon Yellow */}
-                      <Link 
-                        to="/profile" 
-                        onClick={() => setIsProfileMenuOpen(false)}
-                        className="group flex items-center gap-3 px-4 py-3 text-sm font-bold text-zinc-400 hover:text-[#DEFF0A] hover:bg-white/5 transition-all"
-                      >
-                        <User size={18} className="text-zinc-500 group-hover:text-[#DEFF0A] transition-colors" />
-                        <span>Profile</span>
-                      </Link>
-                      
-                      {/* Divider */}
-                      <div className="h-px bg-zinc-900 my-1 mx-2"></div>
-                      
-                      {/* Logout Button - Hover turns Red */}
-                      <button 
-                        onClick={handleLogout}
-                        className="w-full group flex items-center gap-3 px-4 py-3 text-sm font-bold text-zinc-400 hover:text-red-500 hover:bg-red-500/5 transition-all text-left"
-                      >
-                        <LogOut size={18} className="text-zinc-500 group-hover:text-red-500 transition-colors" />
-                        <span>Logout</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* 3. Mobile Menu Toggle */}
-                <button 
-                  className="lg:hidden text-zinc-400"
-                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                >
-                  {mobileMenuOpen ? <X /> : <Menu />}
-                </button>
-              </div>
-
+                <path
+                  d="M11 4H4C2.89543 4 2 4.89543 2 6V18C2 19.1046 2.89543 20 4 20H11V4Z"
+                  fill="#ffffff"
+                  fillOpacity="0.8"
+                />
+              </svg>
             </div>
+            {/* Logo Text */}
+            <span className="text-lg font-bold tracking-tight text-white">
+              Open<span className="text-gray-100">Course</span>
+            </span>
+          </Link>
+
+          {/* --- Center: Nav Links (Desktop) --- */}
+          <div
+            className={`hidden md:flex items-center gap-1 md:-ml-15 transition-opacity duration-300 ${
+              isScrolled ? "opacity-100" : "opacity-90"
+            } `}
+          >
+            {[
+              {
+                name: "Home",
+                path: "/",
+              },
+              {
+                name: "Create",
+                path: "/create",
+              },
+              {
+                name: "Courses",
+                path: "/courses",
+              },
+              {
+                name: "Profile",
+                path: "/profile",
+              },
+            ].map((item, idx) => (
+              <Link
+                to={item.path}
+                key={idx}
+                className={`px-4 py-1.5 ${
+                  !isLoggedIn ? "hidden" : ""
+                } text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 rounded-full transition-all duration-200`}
+              >
+                {item.name}
+              </Link>
+            ))}
+          </div>
+
+          {/* --- Right: Auth Buttons --- */}
+          <div className="hidden md:flex items-center gap-4">
+            {isLoggedIn ? (
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleLogout}
+                  className="p-2 text-red-400 hover:bg-red-500/10 rounded-full"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" x2="9" y1="12" y2="12" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Link
+                  to={"/login"}
+                  className="px-5 py-2 text-sm font-semibold text-white border border-white  rounded-lg  shadow-white/20 transition-all duration-300 transform hover:scale-105"
+                >
+                  Login
+                </Link>
+                <Link
+                  to={"/signup"}
+                  className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg  transition-all duration-300 transform hover:scale-105"
+                >
+                  Get Started
+                </Link>
+              </div>
+            )}
+          </div>
+
+          {/* --- Mobile Menu Toggle --- */}
+          <div className="md:hidden flex items-center">
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+            >
+              {isMobileMenuOpen ? (
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 6h16M4 12h16M4 18h16"
+                  />
+                </svg>
+              )}
+            </button>
+          </div>
+
+          {/* --- Mobile Menu Dropdown --- */}
+          <div
+            className={`
+              absolute top-full right-0 mt-4 w-64 p-4 
+              bg-[#0a0a0a] border border-white/10 rounded-2xl 
+              flex flex-col gap-2 shadow-2xl origin-top-right transition-all duration-300
+              ${
+                isMobileMenuOpen
+                  ? "opacity-100 scale-100 translate-y-0"
+                  : "opacity-0 scale-95 -translate-y-4 pointer-events-none"
+              }
+            `}
+          >
+            {["Features", "Pricing", "Blog", "Contact"].map((item) => (
+              <a
+                key={item}
+                href="#"
+                className="px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors"
+              >
+                {item}
+              </a>
+            ))}
+            <div className="h-px bg-white/10 my-1" />
+            <button className="w-full py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors">
+              Try for free
+            </button>
           </div>
         </div>
       </nav>
-
-      {/* MOBILE MENU OVERLAY */}
-      <div 
-        className={`fixed inset-0 z-40 bg-[#0A0A0A] pt-24 px-6 transition-transform duration-500 ease-in-out ${
-          mobileMenuOpen ? "translate-y-0" : "-translate-y-full"
-        }`}
-      >
-        <div className="flex flex-col gap-6">
-           <Link to="/create" onClick={() => setMobileMenuOpen(false)} className="w-full py-4 bg-[#DEFF0A] text-black font-black text-center rounded-xl uppercase tracking-widest">
-             + New Course
-           </Link>
-           {[{name: 'Home',path: '/'}, {name: 'Courses',path: '/courses'}, {name: 'Create',path: '/create'}].map((item,idx) => (
-             <Link 
-               key={idx} 
-               to={item.path}
-               onClick={() => setMobileMenuOpen(false)}
-               className="text-2xl font-bold text-zinc-500 hover:text-white transition-colors border-b border-zinc-900 pb-4"
-             >
-               {item.name}
-             </Link>
-           ))}
-        </div>
-      </div>
     </>
   );
 };
