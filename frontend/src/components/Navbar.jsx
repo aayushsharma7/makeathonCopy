@@ -73,7 +73,7 @@ const Navbar = () => {
         className={`fixed z-50 transition-all duration-500 ease-in-out flex justify-center items-start 
           ${
             isScrolled
-              ? "top-5 left-0 right-0 md:px-5 "
+              ? "top-5 left-0 right-0 md:px-5"
               : "top-0 left-0 right-0 md:px-10"
           }
         `}
@@ -120,7 +120,7 @@ const Navbar = () => {
 
           {/* --- Center: Nav Links (Desktop) --- */}
           <div
-            className={`hidden md:flex items-center gap-1 md:-ml-15 transition-opacity duration-300 ${
+            className={`hidden md:flex items-center gap-1 md:-ml-20 transition-opacity duration-300 ${
               isScrolled ? "opacity-100" : "opacity-90"
             } `}
           >

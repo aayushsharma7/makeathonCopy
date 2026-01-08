@@ -39,7 +39,7 @@ const HomePage = () => {
 
   useEffect(() => {
     checkAuth();
-  },[]);
+  }, []);
 
   const getData = async () => {
     try {
@@ -60,6 +60,7 @@ const HomePage = () => {
   };
 
   useEffect(() => {
+    
     getData();
     console.log(courses);
   }, []);
@@ -69,8 +70,6 @@ const HomePage = () => {
   const goToCourse = (e, n) => {
     navigate(`/courses/${n}/${e}}`);
   };
-
-  
 
   // const changeUser = () => {
   //     setUser('changed');
@@ -84,17 +83,17 @@ const HomePage = () => {
     return (
       <div className="flex items-center justify-center min-h-screen selection:bg-[#2563EB] selection:text-black overflow-hidden relative">
         <div
-  className="absolute inset-0 z-0 animate-grid" // <--- Added class here
-  style={{
-    backgroundColor: '#0a0a0a',
-    backgroundImage: `
+          className="absolute inset-0 z-0 animate-grid" // <--- Added class here
+          style={{
+            backgroundColor: "#0a0a0a",
+            backgroundImage: `
       radial-gradient(circle at 25% 25%, #222222 0.5px, transparent 1px),
       radial-gradient(circle at 75% 75%, #111111 0.5px, transparent 1px)
     `,
-    backgroundSize: '10px 10px', // The animation moves exactly this distance
-    imageRendering: 'pixelated',
-  }}
-/>
+            backgroundSize: "10px 10px", // The animation moves exactly this distance
+            imageRendering: "pixelated",
+          }}
+        />
         <div class="container">
           <div class="h1Container">
             <div class="cube h1 w1 l1">
@@ -270,22 +269,22 @@ const HomePage = () => {
   return (
     <div className="min-h-screen  selection:bg-[#2563EB] selection:text-black overflow-hidden relative">
       <div
-  className="absolute inset-0 z-0 animate-grid" // <--- Added class here
-  style={{
-    backgroundColor: '#0a0a0a',
-    backgroundImage: `
+        className="absolute inset-0 z-0 animate-grid" // <--- Added class here
+        style={{
+          backgroundColor: "#0a0a0a",
+          backgroundImage: `
       radial-gradient(circle at 25% 25%, #222222 0.5px, transparent 1px),
       radial-gradient(circle at 75% 75%, #111111 0.5px, transparent 1px)
     `,
-    backgroundSize: '10px 10px', // The animation moves exactly this distance
-    imageRendering: 'pixelated',
-  }}
-/>
+          backgroundSize: "10px 10px", // The animation moves exactly this distance
+          imageRendering: "pixelated",
+        }}
+      />
 
       {/* --- MAIN CONTENT CONTAINER --- */}
       <div className="relative z-10 max-w-7xl mx-auto px-6 py-27 ">
         {/* 1. HERO HEADER */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-20 ">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-14 ">
           <div className="relative">
             {/* Glowing Accent Dot */}
             {/* <div className="absolute -top-10 -left-10 w-20 h-20 bg-[#2563EB] blur-3xl opacity-20 pointer-events-none"></div> */}
@@ -293,7 +292,7 @@ const HomePage = () => {
             <h1 className="text-5xl md:text-6xl font-black text-white tracking-tight leading-[0.9]">
               All your courses <br />
               <span className="text-transparent bg-clip-text bg-linear-to-r from-[#2563EB] via-white to-zinc-500">
-                start learning!.
+                start learning!
               </span>
             </h1>
           </div>
@@ -312,7 +311,7 @@ const HomePage = () => {
                   </button>
                 </Link> */}
         </div>
-        <div className="grid grid-cols-1 md:mt-0 -mt-6 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {courses.map((course, idx) => (
             <div
               key={idx}

@@ -24,7 +24,6 @@ const videoModel = new mongoose.Schema({
     },
     thumbnail:{
         type: String,
-        required: true        
     },
     videoId:{
         type: String,

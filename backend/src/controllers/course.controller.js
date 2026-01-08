@@ -10,7 +10,7 @@ export const courseController = async (req,res) => {
         const playlistID = await req.body.url.split('list=')[1];
         const checkArr = await Course.find({
             playlistId: playlistID,
-            owner: req.body.owner
+            owner: req.user.username
         })
 
         if(checkArr.length===0){
@@ -28,7 +28,7 @@ export const courseController = async (req,res) => {
                 playlistId: playlistID,
                 totalVideos: courseData.data.pageInfo.totalResults,
                 videos: [],
-                owner: req.body.owner,
+                owner: req.user.username,
                 thumbnail: courseData.data.items[0].snippet.thumbnails.maxres?.url || courseData.data.items[0].snippet.thumbnails.standard?.url || courseData.data.items[0].snippet.thumbnails.high?.url || courseData.data.items[0].snippet.thumbnails.default?.url,
             })
             newCourse.save();
@@ -73,7 +73,7 @@ export const courseController = async (req,res) => {
 export const getCourse =  async (req,res) => {
     try {
         const courses = await Course.find({
-            owner: req.params.owner
+            owner: req.user.username
         })
         if(courses.length===0){
             res.status(200).send("No courses found")

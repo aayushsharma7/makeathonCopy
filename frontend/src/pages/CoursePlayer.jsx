@@ -8,6 +8,11 @@ import {
   Volume2,
   Maximize2,
   Settings,
+  ChevronDown,
+  Send,
+  Sparkles,
+  Bot,
+  BookCopy,
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import axios from "axios";
@@ -20,6 +25,8 @@ const CoursePlayer = () => {
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  const [isOpen, setIsOpen] = useState(true);
 
   const getData = async () => {
     try {
@@ -43,10 +50,6 @@ const CoursePlayer = () => {
     setActiveIndex(index);
     console.log(activeIndex);
   };
-
-  // setTimeout(() => {
-  //   setLoading(false);
-  // },1000)
 
   if (loading)
     return (
@@ -256,14 +259,14 @@ const CoursePlayer = () => {
       `}</style>
 
       <div
-        className="absolute inset-0 z-0 animate-grid" 
+        className="absolute inset-0 z-0 animate-grid"
         style={{
           backgroundColor: "#0a0a0a",
           backgroundImage: `
       radial-gradient(circle at 25% 25%, #222222 0.5px, transparent 1px),
       radial-gradient(circle at 75% 75%, #111111 0.5px, transparent 1px)
     `,
-          backgroundSize: "10px 10px", 
+          backgroundSize: "10px 10px",
           imageRendering: "pixelated",
         }}
       />
@@ -294,7 +297,7 @@ const CoursePlayer = () => {
         </header>
 
         {/* MAIN LAYOUT */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 min-h-0 pb-2 ">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-6 min-h-0 pb-2 ">
           {/* LEFT: PLAYER & DESCRIPTION */}
           <div className="lg:col-span-8 flex flex-col h-full overflow-y-auto pr-2 custom-scrollbar">
             {/* Video Player Container */}
@@ -324,109 +327,210 @@ const CoursePlayer = () => {
             </div>
           </div>
 
-          {/* RIGHT: PLAYLIST WITH THUMBNAILS */}
-          <div className="h-fit md:max-h-150 max-h-90 lg:col-span-4 flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden">
-            {/* Header */}
-            <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0">
-              <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
-                Course Content
-              </span>
-              <span className="text-[11px] font-bold text-zinc-600">
-                {activeIndex} / {data.length} Completed
-              </span>
+          {/* RIGHT COLUMN: PLAYLIST + CHAT */}
+          <div className="lg:col-span-4 flex flex-col gap-3">
+            {/* 1. COURSE CONTENT ACCORDION */}
+            <div className="max-h-140 flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
+              {/* Header */}
+              <div
+                onClick={() => setIsOpen(!isOpen)}
+                className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
+                    Course Content
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={`text-zinc-500 transition-transform duration-500 ease-in-out ${
+                      isOpen ? "rotate-180" : "rotate-0"
+                    }`}
+                  />
+                </div>
+                <span className="text-[11px] font-bold text-zinc-600">
+                  {activeIndex} / {data.length} Completed
+                </span>
+              </div>
+
+              {/* Body */}
+              <div
+                className={`grid transition-[grid-template-rows] duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                  isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                }`}
+              >
+                <div className="overflow-hidden ">
+                  {/* Scrollable Area */}
+                  <div className="p-3 space-y-2 max-h-90 md:max-h-150 overflow-y-auto custom-scrollbar hover:pr-2">
+                    {data.map((video, index) => (
+                      <div
+                        onClick={() => {
+                          setActive(index);
+                        }}
+                        key={index}
+                        className={`
+                group flex items-center gap-4 p-3 rounded-xl transition-all duration-200 cursor-pointer border
+                ${
+                  activeIndex === index
+                    ? "bg-[#2563EB]/5 border-[#2563EB]/20"
+                    : "bg-transparent border-transparent hover:bg-white/5"
+                }
+              `}
+                      >
+                        {/* Status Icon */}
+                        <div
+                          className={`
+                  w-8 h-8 rounded-md flex items-center justify-center shrink-0 transition-transform duration-500 
+                  ${
+                    activeIndex === index
+                      ? "bg-[#2563EB] text-black "
+                      : "bg-transparent text-zinc-700 border border-white/5"
+                  }
+                `}
+                        >
+                          {activeIndex === index ? (
+                            <Play size={14} fill="black" />
+                          ) : (
+                            <span className="text-[10px] font-bold ">
+                              {index + 1}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Video Thumbnail */}
+                        <div className="shrink-0 relative rounded-md overflow-hidden border border-white/10 w-20 h-11 bg-zinc-900">
+                          <img
+                            src={video.thumbnail}
+                            alt={video.title}
+                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 grayscale-[0.3] group-hover:grayscale-0"
+                          />
+                          {video.status === "locked" && (
+                            <div className="absolute inset-0 bg-black/50"></div>
+                          )}
+                        </div>
+
+                        {/* Text Info */}
+                        <div className="flex-1 min-w-0">
+                          <h4
+                            className={`text-sm font-bold mb-1 leading-tight truncate ${
+                              video.status === "active"
+                                ? "text-white"
+                                : "text-zinc-400 group-hover:text-zinc-200"
+                            }`}
+                          >
+                            {video.title}
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            <Clock
+                              size={10}
+                              className={
+                                video.status === "active"
+                                  ? "text-[#2563EB]"
+                                  : "text-zinc-600"
+                              }
+                            />
+                            <span
+                              className={`text-[11px] font-medium ${
+                                video.status === "active"
+                                  ? "text-[#2563EB]"
+                                  : "text-zinc-600"
+                              }`}
+                            >
+                              {video.duration
+                                .replace("PT", "")
+                                .replace("H", ":")
+                                .replace("M", ":")
+                                .replace("S", "")}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    <div className="sticky bottom-0 h-8 bg-gradient-to-t from-[#141414] to-transparent pointer-events-none z-10 -mb-3"></div>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Scrollable Area */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar hover:pr-2 ">
-              {data.map((video, index) => (
-                <div
-                  onClick={() => {
-                    setActive(index);
-                  }}
-                  key={index}
-                  className={`
-                    group flex items-center gap-4 p-3 rounded-xl transition-all duration-200 cursor-pointer border
-                    ${
-                      activeIndex === index
-                        ? "bg-[#2563EB]/5 border-[#2563EB]/20"
-                        : "bg-transparent border-transparent hover:bg-white/5"
-                    }
-                  `}
-                >
-                  {/* 1. Status Indicator Icon */}
-                  <div
-                    className={`
-                    w-8 h-8 rounded-md flex items-center justify-center shrink-0 transition-transform duration-500 
-                    ${
-                      activeIndex === index
-                        ? "bg-[#2563EB] text-black "
-                        : "bg-transparent text-zinc-700 border border-white/5"
-                    }
-              
-                  `}
-                  >
-                    {activeIndex === index ? (
-                      <Play size={14} fill="black" />
-                    ) : (
-                      <span className="text-[10px] font-bold ">
-                        {index + 1}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* 2. NEW: Video Thumbnail */}
-                  <div className="shrink-0 relative rounded-md overflow-hidden border border-white/10 w-20 h-11 bg-zinc-900">
-                    <img
-                      src={video.thumbnail}
-                      alt={video.title}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 grayscale-[0.3] group-hover:grayscale-0"
+            {/* 2. AI TUTOR CHAT (New Card) */}
+            <div className="h-fit flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
+              {/* Header */}
+              <div
+                onClick={() => setIsOpen(!isOpen)}
+                className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                    <BookCopy
+                      size={15}
+                      className={!isOpen ? "text-blue-500" : "text-zinc-500"}
                     />
-                    {video.status === "locked" && (
-                      <div className="absolute inset-0 bg-black/50"></div>
-                    )}
-                  </div>
+                    AI Tutor
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={`text-zinc-500 transition-transform duration-500 ease-in-out ${
+                      !isOpen ? "rotate-180" : "rotate-0"
+                    }`}
+                  />
+                </div>
+                <div
+                  className={`w-2 h-2 rounded-full ${
+                    !isOpen ? "bg-blue-600 animate-pulse" : "bg-zinc-700"
+                  }`}
+                />
+              </div>
 
-                  {/* 3. Text Info */}
-                  <div className="flex-1 min-w-0">
-                    <h4
-                      className={`text-sm font-bold mb-1 leading-tight truncate ${
-                        video.status === "active"
-                          ? "text-white"
-                          : "text-zinc-400 group-hover:text-zinc-200"
-                      }`}
-                    >
-                      {video.title}
-                    </h4>
-                    <div className="flex items-center gap-2">
-                      <Clock
-                        size={10}
-                        className={
-                          video.status === "active"
-                            ? "text-[#2563EB]"
-                            : "text-zinc-600"
-                        }
-                      />
-                      <span
-                        className={`text-[11px] font-medium ${
-                          video.status === "active"
-                            ? "text-[#2563EB]"
-                            : "text-zinc-600"
-                        }`}
-                      >
-                        {video.duration
-                          .replace("PT", "")
-                          .replace("H", ":")
-                          .replace("M", ":")
-                          .replace("S", "")}
-                      </span>
+              {/* Body */}
+              <div
+                className={`grid transition-[grid-template-rows] duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                  !isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                }`}
+              >
+                <div className="overflow-hidden">
+                  <div className="flex flex-col h-[500px] md:max-h-150 relative">
+                    {/* Chat Messages Area */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                      {/* AI Welcome Message */}
+                      <div className="flex gap-3">
+                        <div className="w-8 h-8 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0">
+                          <Bot size={14} className="text-blue-400" />
+                        </div>
+                        <div className="flex-1 bg-white/5 border border-white/5 rounded-2xl rounded-tl-none p-3 text-sm text-zinc-300 leading-relaxed">
+                          <p>
+                            Hello! I'm your AI learning assistant. I'm watching
+                            this video with you. Ask me anything about the
+                            content!
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* User Message Example */}
+                      {/* <div className="flex gap-3 flex-row-reverse">
+                         <div className="bg-[#2563EB] rounded-2xl rounded-tr-none p-3 text-sm text-white leading-relaxed max-w-[85%]">
+                            <p>Can you explain the last part again?</p>
+                         </div>
+                      </div>
+                      */}
+                    </div>
+
+                    {/* Input Area */}
+                    <div className="p-3 border-t border-white/5 bg-[#0a0a0a]/50 backdrop-blur-md mt-auto">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Ask a question..."
+                          className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-10 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all placeholder:text-zinc-600"
+                        />
+                        <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-blue-500 rounded-lg text-zinc-400 hover:text-white transition-all">
+                          <Send size={14} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
-
-            {/* Bottom Fade */}
-            <div className="h-8 bg-linear-to-t from-[#141414] to-transparent pointer-events-none shrink-0 z-10 -mt-8"></div>
           </div>
         </div>
       </div>

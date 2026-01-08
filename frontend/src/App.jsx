@@ -6,6 +6,7 @@ import CoursePlayer from "./pages/CoursePlayer";
 import SignUp from "./pages/SignUp";
 import Login from "./pages/Login";
 import Navbar from "./components/Navbar";
+import Profile from "./pages/Profile";
 
 const App = () => {
 const location = useLocation()
@@ -20,6 +21,7 @@ const location = useLocation()
         <Route path='/login' element={<Login />} />
         <Route path='/create' element={<CreateCourse />} />
         <Route path='/courses' element={<HomePage />} />
+        <Route path='/profile' element={<Profile />} />
         <Route path='/courses/:name/:id' element={<CoursePlayer />} />
       </Routes>
     </div>

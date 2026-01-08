@@ -4,9 +4,9 @@ import { authCheck } from "../middlewares/authCheck.js";
 
 const router = express.Router()
 
-router.post('/create/:owner', authCheck, courseController);
+router.post('/create', authCheck, courseController);
 
-router.get('/:owner', authCheck, getCourse);
+router.get('/', authCheck, getCourse);
 
 router.get('/data/:id', getCourseData)
 

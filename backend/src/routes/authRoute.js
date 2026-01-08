@@ -7,6 +7,6 @@ const router = express.Router()
 router.post('/signup', signupController)
 router.post('/login', loginController)
 router.post('/logout', logoutController);
-router.get('/check/:owner',authCheck, continueController)
+router.get('/check',authCheck, continueController)
 
 export default router;
