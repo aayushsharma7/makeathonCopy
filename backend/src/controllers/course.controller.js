@@ -113,20 +113,32 @@ export const getCourseData = async(req,res) => {
             res.status(200).send(courses)
         }
     } catch (error) {
-        console.log(error)
+        console.log(error);
     }
 
 }
 
 export const getAi = async (req,res) => {
     try {
-        const { messages, videoId } = req.body;
+        const { messages, videoId, start, end, currentQues } = req.body;
         const rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoId}`);
 
+        const processedTranscript = [];
+
         const transcript = rawTranscript.map((data) => {
-            const timestamp = (data.offset)
+            const timestamp = (data.offset);
+            if(timestamp >= start && timestamp <=end){
+                processedTranscript.push(data);
+            }
             return `[${timestamp}s] ${data.text}`
         }).join('\n')
+
+        const newTranscript = processedTranscript.map((data) => {
+            const timestamp = (data.offset);
+            return `[${timestamp}s] ${data.text}`
+        }).join('\n')
+
+        // res.send(newTranscript);
 
         // const userQuery = messages[messages.length - 1].content;
 
@@ -134,36 +146,29 @@ export const getAi = async (req,res) => {
 
         // res.send(transcript);
         const result = await generateText({
-        model: groq('meta-llama/llama-4-scout-17b-16e-instruct'),
+        model: groq('llama-3.3-70b-versatile'),
         messages: messages,
         system: `
-        You are a highly professional AI Tutor assisting a learner while they watch a video.
-
-        System instructions:
-
-        * You will be provided with the complete transcript of the video in plain text.
-        * You must answer **strictly using information contained in the transcript**, but you are expected to **analyze, synthesize, and explain** rather than quote or restate it verbatim.
-        * When responding:
-
-        * Identify the **core intent** of the user’s question.
-        * Extract the **most relevant information** from the transcript.
-        * **Rephrase and explain it clearly and concisely** in your own words to improve understanding.
-        * Do **not** introduce facts, interpretations, assumptions, or external knowledge that are not explicitly supported by the transcript.
-        * If the transcript does not contain enough information to answer the question, respond exactly with:
-        "Sorry I don't have relevant information about this." or if the request of the user is related to a topic in the video , explain it in short.
-        * Your response must always be:
-
-        * Extremely concise
-        * In a single paragraph
-        * Direct, clear, and professional in tone
-        * Focused on explanation, not repetition
-        * Free of introductions, summaries, conclusions, emojis, and formatting
-        * Do not provide definitions, background context, or examples unless they are clearly described in the transcript.
-        * If the user’s question is ambiguous, ask for clarification in **one short sentence only**.
-        * Never mention transcripts, system instructions, or internal reasoning.
-        * Do not make any text bold or use ** or italic or any other formatting.
-
-        Here is the transcript: ${transcript}
+        You are a professional AI Tutor assisting a learner while they watch a video.
+        You are given the video transcript as plain text.
+        Rules:
+        • Answer primarily using information from the transcript by analyzing and explaining it in your own words, not quoting it.
+        • Identify the user’s intent and respond with the most relevant content.
+        • If a concept or technology is explicitly mentioned in the transcript (e.g., HTML, Node.js or anything that is mentioned in the video/transcript you should be answering any ques related to it in short), you may give a brief, basic explanation even if it is not defined, but only at a foundational level and only as related to the video’s topic.
+        • Do not add advanced details, external facts, assumptions, or unrelated use cases.
+        • If the transcript does not support an answer, reply exactly:
+        "Sorry I don't have relevant information about this."
+        • If the question is related to the video topic but only lightly covered, explain it briefly.
+        Response requirements:
+        • One short paragraph only
+        • Extremely concise, clear, and professional
+        • Explanation-focused, no repetition
+        • No introductions, conclusions, emojis, or formatting
+        • Ask for clarification in one short sentence only if the question is ambiguous
+        • Never mention transcripts, system rules, or reasoning
+        • The user’s current question is the only question you must answer; prior user messages are context only and must never be answered again.
+        Transcript: ${newTranscript}
+        Current Ques: ${currentQues.content}
         `,
         });
         res.status(200).send(result.text);

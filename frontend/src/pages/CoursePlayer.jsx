@@ -15,6 +15,9 @@ import {
   BookCopy,
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
+import Plyr from "plyr";
+import "plyr/dist/plyr.css";
+
 import axios from "axios";
 import ReactPlayer from "react-player";
 import { fetchTranscript } from "youtube-transcript-plus";
@@ -32,6 +35,10 @@ const CoursePlayer = () => {
         "Hello! I'm your AI learning assistant. I'm watching this video with you. Ask me anything about the content!",
     },
   ]);
+  const videoRef = useRef(null);
+  const plyrRef = useRef(null);
+  const [currentTime, setCurrentTime] = useState(0);
+
   const [input, setInput] = useState("");
   const chatContainerRef = useRef(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -59,7 +66,8 @@ const CoursePlayer = () => {
     console.log(activeIndex);
   };
 
-  useEffect(() => { //auto scroll chatbox
+  useEffect(() => {
+    //auto scroll chatbox
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTo({
         top: chatContainerRef.current.scrollHeight,
@@ -81,7 +89,7 @@ const CoursePlayer = () => {
 
     // Use the functional update form with the previous state --- impppp
     setMessages((prev) => [
-      ...prev, //use of spread operator in this 
+      ...prev, //use of spread operator in this
       {
         role: "user",
         content: input,
@@ -92,15 +100,21 @@ const CoursePlayer = () => {
     setIsChatLoading(true);
 
     try {
+      const start = currentTime > 25 ? Math.floor(currentTime) - 25 :0;
+      const end = Math.floor(currentTime) + 25;
+
       const resp = await axios.post("http://localhost:3000/course/ai", {
-        messages: [
-          ...messages,
-          {
+        messages: [...messages , {
             role: "user",
             content: input,
-          },
-        ],
+        }].slice(-6),
         videoId: data?.[activeIndex]?.videoId,
+        start,
+        end,
+        currentQues: {
+            role: "user",
+            content: input,
+        }
       });
 
       setMessages((prev) => [
@@ -145,6 +159,39 @@ const CoursePlayer = () => {
       },
     ]);
   }, [activeIndex]);
+
+  const currentVideoId = data?.[activeIndex]?.videoId;
+
+  useEffect(() => {
+    const player = new Plyr(videoRef.current, {
+      controls: [
+        "play",
+        "progress",
+        "current-time",
+        "mute",
+        "volume",
+        "settings",
+        "fullscreen",
+      ],
+      youtube: {
+        noCookie: true,
+        rel: 0,
+        showinfo: 0,
+        iv_load_policy: 3,
+        modestbranding: 1,
+      },
+      ratio: "16:9",
+    });
+
+    plyrRef.current = player;
+
+    player.on("timeupdate", (event) => {
+      const time = event.detail.plyr.currentTime; 
+      setCurrentTime(time); 
+      // console.log("Current Time:", time); 
+    });
+
+  }, [currentVideoId]);
 
   // useEffect(() => {
   //   async function fetchTranscripts() {
@@ -409,20 +456,20 @@ const CoursePlayer = () => {
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-6 min-h-0 pb-2 ">
           {/* LEFT: PLAYER & DESCRIPTION */}
           <div className="lg:col-span-8 flex flex-col h-full overflow-y-auto pr-2 custom-scrollbar">
-            {/* Video Player Container */}
-            <div className="relative w-full aspect-video bg-black rounded-3xl overflow-hidden border border-white/10 shadow-2xl shrink-0 group">
-              <ReactPlayer
-                src={`https://www.youtube.com/watch?v=${data[activeIndex].videoId}`}
-                width="100%"
-                height="100%"
-                controls={true}
+            {/* --- VIDEO CONTAINER --- */}
+            {/* key={currentVideoId} is the magic fix. It destroys the DOM when video changes */}
+            <div
+              key={currentVideoId}
+              className="relative w-full aspect-video bg-black rounded-3xl overflow-hidden border border-white/10 shadow-2xl shrink-0"
+            >
+              <div
+                ref={videoRef}
+                className="plyr__video-embed w-full h-full"
+                data-plyr-provider="youtube"
+                data-plyr-embed-id={currentVideoId}
               />
-
-              {/* Custom Overlay */}
-              <div className="absolute inset-0 pointer-events-none border border-white/5 rounded-3xl shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]"></div>
             </div>
 
-            {/* Meta Data */}
             <div className="md:mt-4 mt-6 ml-2">
               <h2 className="text-2xl md:text-3xl font-bold text-white mb-1 ">
                 {data[activeIndex].title}
