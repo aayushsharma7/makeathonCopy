@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Play,
   Pause,
@@ -17,23 +17,31 @@ import {
 import { Link, useParams } from "react-router-dom";
 import axios from "axios";
 import ReactPlayer from "react-player";
+import { fetchTranscript } from "youtube-transcript-plus";
 
 const CoursePlayer = () => {
   const [data, setData] = useState([]);
-
   const { name, id } = useParams();
-
   const [activeIndex, setActiveIndex] = useState(0);
   const [loading, setLoading] = useState(true);
-
   const [isOpen, setIsOpen] = useState(true);
+  const [messages, setMessages] = useState([
+    {
+      role: "system",
+      content:
+        "Hello! I'm your AI learning assistant. I'm watching this video with you. Ask me anything about the content!",
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const chatContainerRef = useRef(null);
+  const [isChatLoading, setIsChatLoading] = useState(false);
 
   const getData = async () => {
     try {
       const apiData = await axios.get(
         `http://localhost:3000/course/data/${id.split("}")[0]}`
       );
-      console.log(apiData.data);
+      // console.log(apiData.data);
       setData(apiData.data);
     } catch (error) {
       console.log(error);
@@ -50,6 +58,107 @@ const CoursePlayer = () => {
     setActiveIndex(index);
     console.log(activeIndex);
   };
+
+  useEffect(() => { //auto scroll chatbox
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, [messages, isChatLoading]);
+
+  const handleInput = (e) => {
+    setInput(e.target.value);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    // const newMessages = [...messages, {
+    // role: "user",
+    // content: input
+    // }] //spread operator to it doesnt create reference to original messages array and ui updates auto (dont use this as state isnt updated synchronously)
+
+    // Use the functional update form with the previous state --- impppp
+    setMessages((prev) => [
+      ...prev, //use of spread operator in this 
+      {
+        role: "user",
+        content: input,
+      },
+    ]);
+    setInput("");
+
+    setIsChatLoading(true);
+
+    try {
+      const resp = await axios.post("http://localhost:3000/course/ai", {
+        messages: [
+          ...messages,
+          {
+            role: "user",
+            content: input,
+          },
+        ],
+        videoId: data?.[activeIndex]?.videoId,
+      });
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "system",
+          content: resp.data,
+        },
+      ]);
+    } catch (error) {
+      console.error(error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "system",
+          content: "Sorry, I'm having trouble connecting right now.",
+        },
+      ]);
+    } finally {
+      setIsChatLoading(false);
+    }
+    // const resp = await axios.post('http://localhost:3000/course/ai', {
+    //   messages: [...messages, {
+    //   role: "user",
+    //   content: input
+    //   }],
+    //   videoId: data?.[activeIndex]?.videoId
+    // });
+    // console.log(resp.data);
+    // setMessages(prev => [...prev, {
+    // role: "system",
+    // content: resp.data
+    // }]);
+  };
+
+  useEffect(() => {
+    setMessages([
+      {
+        role: "system",
+        content:
+          "Hello! I'm your AI learning assistant. I'm watching this video with you. Ask me anything about the content!",
+      },
+    ]);
+  }, [activeIndex]);
+
+  // useEffect(() => {
+  //   async function fetchTranscripts() {
+  //     console.log(data?.[activeIndex]?.videoId);
+
+  //     const rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${data?.[activeIndex]?.videoId}`);
+  //     const transcript = rawTranscript.map((data) => {
+  //         const timestamp = (data.offset)
+  //         return `[${timestamp}s] ${data.text}`
+  //     }).join('\n')
+  //     localStorage.setItem('transcript', transcript);
+  // }
+  //   fetchTranscripts();
+  // },[activeIndex])
 
   if (loading)
     return (
@@ -289,7 +398,7 @@ const CoursePlayer = () => {
               <div className="flex items-center gap-2 mt-0.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
                 <p className="text-xs text-zinc-400 font-medium tracking-wide uppercase">
-                  Episode {activeIndex}
+                  Episode {activeIndex + 1}
                 </p>
               </div>
             </div>
@@ -354,7 +463,7 @@ const CoursePlayer = () => {
 
               {/* Body */}
               <div
-                className={`grid transition-[grid-template-rows] duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                className={`grid transition-[grid-template-rows] duration-500 ease-in-out ${
                   isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
                 }`}
               >
@@ -446,7 +555,7 @@ const CoursePlayer = () => {
                       </div>
                     ))}
 
-                    <div className="sticky bottom-0 h-8 bg-gradient-to-t from-[#141414] to-transparent pointer-events-none z-10 -mb-3"></div>
+                    <div className="sticky bottom-0 h-8 bg-linear-to-t from-[#141414] to-transparent pointer-events-none z-10 -mb-3"></div>
                   </div>
                 </div>
               </div>
@@ -483,50 +592,78 @@ const CoursePlayer = () => {
 
               {/* Body */}
               <div
-                className={`grid transition-[grid-template-rows] duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                className={`grid transition-[grid-template-rows] duration-500 ease-in-out ${
                   !isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
                 }`}
               >
                 <div className="overflow-hidden">
-                  <div className="flex flex-col h-[500px] md:max-h-150 relative">
+                  <div className="flex flex-col h-125 md:max-h-150 relative">
                     {/* Chat Messages Area */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                    <div
+                      ref={chatContainerRef}
+                      className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar"
+                    >
                       {/* AI Welcome Message */}
-                      <div className="flex gap-3">
-                        <div className="w-8 h-8 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0">
-                          <Bot size={14} className="text-blue-400" />
+                      {messages.map((item, id) => (
+                        <div key={id}>
+                          {item.role === "system" ? (
+                            <div className="flex gap-3">
+                              <div className="w-8 h-8 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0">
+                                <Bot size={14} className="text-blue-400" />
+                              </div>
+                              <div className="flex-1 bg-white/5 border border-white/5 rounded-2xl rounded-tl-none p-3 text-sm text-zinc-300 leading-relaxed">
+                                <p>{item.content}</p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex gap-3 flex-row-reverse">
+                              <div className="bg-[#2563EB] rounded-2xl rounded-tr-none p-3 text-sm text-white leading-relaxed max-w-[85%]">
+                                <p>{item.content}</p>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <div className="flex-1 bg-white/5 border border-white/5 rounded-2xl rounded-tl-none p-3 text-sm text-zinc-300 leading-relaxed">
-                          <p>
-                            Hello! I'm your AI learning assistant. I'm watching
-                            this video with you. Ask me anything about the
-                            content!
-                          </p>
-                        </div>
-                      </div>
+                      ))}
 
-                      {/* User Message Example */}
-                      {/* <div className="flex gap-3 flex-row-reverse">
-                         <div className="bg-[#2563EB] rounded-2xl rounded-tr-none p-3 text-sm text-white leading-relaxed max-w-[85%]">
-                            <p>Can you explain the last part again?</p>
-                         </div>
-                      </div>
-                      */}
+                      {/* loading shoudnt be in messages.map as it has to be the latest/last msg to appear thus at the end */}
+                      {isChatLoading && (
+                        <div className="flex gap-3">
+                          <div className="w-8 h-8 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center shrink-0">
+                            <Bot
+                              size={14}
+                              className="text-blue-400 animate-pulse"
+                            />
+                          </div>
+                          <div className="flex-1 bg-white/5 border border-white/5 rounded-2xl rounded-tl-none p-3 text-sm text-zinc-300 leading-relaxed max-w-25">
+                            <div className="flex gap-1 items-center h-full justify-center">
+                              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" />
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Input Area */}
-                    <div className="p-3 border-t border-white/5 bg-[#0a0a0a]/50 backdrop-blur-md mt-auto">
-                      <div className="relative">
-                        <input
-                          type="text"
-                          placeholder="Ask a question..."
-                          className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-10 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all placeholder:text-zinc-600"
-                        />
-                        <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-blue-500 rounded-lg text-zinc-400 hover:text-white transition-all">
-                          <Send size={14} />
-                        </button>
+                    <form onSubmit={handleSubmit}>
+                      <div className="p-3 border-t border-white/5 bg-[#0a0a0a]/50 backdrop-blur-md mt-auto">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={input}
+                            onChange={handleInput}
+                            autoComplete="off"
+                            name="user_text"
+                            placeholder="Ask a question..."
+                            className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-10 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all placeholder:text-zinc-600"
+                          />
+                          <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-blue-500 rounded-lg text-zinc-400 hover:text-white transition-all">
+                            <Send size={14} />
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    </form>
                   </div>
                 </div>
               </div>

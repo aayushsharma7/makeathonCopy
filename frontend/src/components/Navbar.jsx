@@ -84,7 +84,7 @@ const Navbar = () => {
             ${
               isScrolled
                 ? "w-[90%] md:w-[65%] lg:w-[55%] bg-[#18181B]/80 backdrop-blur-xl border border-white/10 rounded-xl py-3 px-6 shadow-lg shadow-black/20"
-                : "w-full bg-transparent border-transparent py-6 px-6 md:px-12"
+                : "w-full bg-transparent border-transparent py-6 px-6 lg:px-12"
             }
           `}
         >

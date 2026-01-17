@@ -10,14 +10,19 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ai-sdk/groq": "^3.0.10",
+    "@nanostores/react": "github:ai/react",
     "@tailwindcss/vite": "^4.1.18",
+    "ai": "^6.0.39",
     "axios": "^1.13.2",
     "lucide-react": "^0.562.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
     "react-player": "^3.4.0",
     "react-router-dom": "^7.11.0",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.1.18",
+    "youtube-transcript-plus": "^1.1.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

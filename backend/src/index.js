@@ -19,7 +19,7 @@ app.use(cookieParser())
 
 connectDB();
 
-app.use(express.json()) 
+app.use(express.json({ limit: '10mb' }))  // limit increased as we need to accept larger text for ai chat
 app.use(urlencoded({extended: true}))
 
 app.use("/auth", authRoute);
