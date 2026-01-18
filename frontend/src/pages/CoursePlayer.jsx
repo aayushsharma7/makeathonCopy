@@ -35,13 +35,16 @@ const CoursePlayer = () => {
         "Hello! I'm your AI learning assistant. I'm watching this video with you. Ask me anything about the content!",
     },
   ]);
-  const videoRef = useRef(null);
-  const plyrRef = useRef(null);
+  const [currDuration, setCurrDuration] = useState(0);
+  const videoRef = useRef(null); // this means this - {current: null}:  useRef gives you an object that looks like this: { current: initialValue }. This object stays the same for the entire life of the component.
+  // const plyrRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [currVideo, setCurrVideo] = useState("");
 
   const [input, setInput] = useState("");
   const chatContainerRef = useRef(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [completedVideos, setCompletedVideos] = useState([-1]);
 
   const getData = async () => {
     try {
@@ -59,6 +62,7 @@ const CoursePlayer = () => {
 
   useEffect(() => {
     getData();
+    setActiveIndex(parseFloat(localStorage.getItem("last_video_played")));
   }, []);
 
   const setActive = (index) => {
@@ -82,73 +86,69 @@ const CoursePlayer = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    // const newMessages = [...messages, {
-    // role: "user",
-    // content: input
-    // }] //spread operator to it doesnt create reference to original messages array and ui updates auto (dont use this as state isnt updated synchronously)
+    if (!isChatLoading) {
+      // const newMessages = [...messages, {
+      // role: "user",
+      // content: input
+      // }] //spread operator to it doesnt create reference to original messages array and ui updates auto (dont use this as state isnt updated synchronously)
 
-    // Use the functional update form with the previous state --- impppp
-    setMessages((prev) => [
-      ...prev, //use of spread operator in this
-      {
-        role: "user",
-        content: input,
-      },
-    ]);
-    setInput("");
-
-    setIsChatLoading(true);
-
-    try {
-      const start = currentTime > 25 ? Math.floor(currentTime) - 25 :0;
-      const end = Math.floor(currentTime) + 25;
-
-      const resp = await axios.post("http://localhost:3000/course/ai", {
-        messages: [...messages , {
-            role: "user",
-            content: input,
-        }].slice(-6),
-        videoId: data?.[activeIndex]?.videoId,
-        start,
-        end,
-        currentQues: {
-            role: "user",
-            content: input,
-        }
-      });
-
+      // Use the functional update form with the previous state --- impppp
       setMessages((prev) => [
-        ...prev,
+        ...prev, //use of spread operator in this
         {
-          role: "system",
-          content: resp.data,
+          role: "user",
+          content: input,
         },
       ]);
-    } catch (error) {
-      console.error(error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "system",
-          content: "Sorry, I'm having trouble connecting right now.",
-        },
-      ]);
-    } finally {
-      setIsChatLoading(false);
+      setInput("");
+
+      setIsChatLoading(true);
+
+      try {
+        const start = currentTime > 25 ? Math.floor(currentTime) - 25 : 0;
+        const end = Math.floor(currentTime) + 25;
+
+        const resp = await axios.post("http://localhost:3000/course/ai", {
+          messages: [
+            ...messages,
+            {
+              role: "user",
+              content: input,
+            },
+          ].slice(-6),
+          videoId: data?.[activeIndex]?.videoId,
+          start,
+          end,
+          currentQues: {
+            role: "user",
+            content: input,
+          },
+        });
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "system",
+            content: resp.data,
+          },
+        ]);
+      } catch (error) {
+        console.error(error);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "system",
+            content: "Sorry, I'm having trouble connecting right now.",
+          },
+        ]);
+      } finally {
+        setIsChatLoading(false);
+      }
     }
-    // const resp = await axios.post('http://localhost:3000/course/ai', {
-    //   messages: [...messages, {
-    //   role: "user",
-    //   content: input
-    //   }],
-    //   videoId: data?.[activeIndex]?.videoId
-    // });
-    // console.log(resp.data);
-    // setMessages(prev => [...prev, {
-    // role: "system",
-    // content: resp.data
-    // }]);
   };
+
+        console.log(Math.floor((currentTime/currDuration)*100));
+
 
   useEffect(() => {
     setMessages([
@@ -164,6 +164,7 @@ const CoursePlayer = () => {
 
   useEffect(() => {
     const player = new Plyr(videoRef.current, {
+      //this videoRef.current injects this player into the div tag where it is referrenced to
       controls: [
         "play",
         "progress",
@@ -173,39 +174,59 @@ const CoursePlayer = () => {
         "settings",
         "fullscreen",
       ],
+      loop: { active: false },
       youtube: {
         noCookie: true,
-        rel: 0,
-        showinfo: 0,
         iv_load_policy: 3,
-        modestbranding: 1,
       },
       ratio: "16:9",
     });
 
-    plyrRef.current = player;
+    // plyrRef.current = player;
 
-    player.on("timeupdate", (event) => {
-      const time = event.detail.plyr.currentTime; 
-      setCurrentTime(time); 
-      // console.log("Current Time:", time); 
+    player.on("ready", (event) => {
+      const progressedTime =
+        localStorage.getItem(`video_${currentVideoId}_progress`) || 0;
+      console.log(progressedTime);
+
+      event.detail.plyr.currentTime = parseFloat(progressedTime); // this parseFloat is required to convert string to number -- impp
+      setCurrDuration(player.duration);
+      setCurrVideo(activeIndex);
+      localStorage.setItem(`last_video_played`, activeIndex);
+      localStorage.setItem(`video_${currentVideoId}_duration`, player.duration);
+      // console.log(player.duration)
+      const newCompletedVideos = [...completedVideos].filter(
+        (num) => num !== activeIndex
+      );
+      setCompletedVideos(newCompletedVideos);
+      const compVids = JSON.stringify(newCompletedVideos);
+      localStorage.setItem(`completed_videos`, compVids);
     });
-
+    player.on("timeupdate", (event) => {
+      //simple event listener when currentTime attribute of player updates
+      const time = event.detail.plyr.currentTime;
+      setCurrentTime(time);
+      if (time > 1) {
+        const progressTime = Math.floor(time);
+        localStorage.setItem(`video_${currentVideoId}_progress`, progressTime);
+      };
+      
+    });
+    player.on("seeked", (event) => {
+      const time = event.detail.plyr.currentTime;
+      setCurrentTime(time);
+      if (time > 1) {
+        const progressTime = Math.floor(time);
+        localStorage.setItem(`video_${currentVideoId}_progress`, progressTime);
+      }
+    });
+    player.on("ended", (event) => {
+      setCompletedVideos((prev) => [...prev, activeIndex]);
+      const compVids = JSON.stringify([...completedVideos, activeIndex]);
+      localStorage.setItem(`completed_videos`, compVids);
+      // event.detail.plyr.stop();
+    });
   }, [currentVideoId]);
-
-  // useEffect(() => {
-  //   async function fetchTranscripts() {
-  //     console.log(data?.[activeIndex]?.videoId);
-
-  //     const rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${data?.[activeIndex]?.videoId}`);
-  //     const transcript = rawTranscript.map((data) => {
-  //         const timestamp = (data.offset)
-  //         return `[${timestamp}s] ${data.text}`
-  //     }).join('\n')
-  //     localStorage.setItem('transcript', transcript);
-  // }
-  //   fetchTranscripts();
-  // },[activeIndex])
 
   if (loading)
     return (
@@ -516,7 +537,7 @@ const CoursePlayer = () => {
               >
                 <div className="overflow-hidden ">
                   {/* Scrollable Area */}
-                  <div className="p-3 space-y-2 max-h-90 md:max-h-150 overflow-y-auto custom-scrollbar hover:pr-2">
+                  <div className="p-3 pb-20 space-y-2 max-h-90 md:max-h-150 overflow-y-auto custom-scrollbar hover:pr-2">
                     {data.map((video, index) => (
                       <div
                         onClick={() => {
@@ -531,6 +552,7 @@ const CoursePlayer = () => {
                     : "bg-transparent border-transparent hover:bg-white/5"
                 }
               `}
+                        //  : `${completedVideos.filter((num) => num===index).length === 0 ? 'bg-green-500/5 border-green-500/20 text-zinc-700':'bg-transparent border-transparent hover:bg-white/5' }`
                       >
                         {/* Status Icon */}
                         <div
@@ -559,16 +581,13 @@ const CoursePlayer = () => {
                             alt={video.title}
                             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 grayscale-[0.3] group-hover:grayscale-0"
                           />
-                          {video.status === "locked" && (
-                            <div className="absolute inset-0 bg-black/50"></div>
-                          )}
                         </div>
 
                         {/* Text Info */}
                         <div className="flex-1 min-w-0">
                           <h4
                             className={`text-sm font-bold mb-1 leading-tight truncate ${
-                              video.status === "active"
+                              activeIndex === index
                                 ? "text-white"
                                 : "text-zinc-400 group-hover:text-zinc-200"
                             }`}
@@ -579,14 +598,14 @@ const CoursePlayer = () => {
                             <Clock
                               size={10}
                               className={
-                                video.status === "active"
+                                activeIndex === index
                                   ? "text-[#2563EB]"
                                   : "text-zinc-600"
                               }
                             />
                             <span
                               className={`text-[11px] font-medium ${
-                                video.status === "active"
+                                activeIndex === index
                                   ? "text-[#2563EB]"
                                   : "text-zinc-600"
                               }`}
@@ -597,7 +616,29 @@ const CoursePlayer = () => {
                                 .replace("M", ":")
                                 .replace("S", "")}
                             </span>
+                            
                           </div>
+                          <div className="flex gap-2">
+                            <div className={`${localStorage.getItem(`video_${data[index].videoId}_progress`) ? '':'hidden'} w-full h-1 bg-zinc-800/50 rounded-full mt-2 overflow-hidden`}>
+                              {/* Change width style to simulate progress (e.g., width: '45%') */}
+                              <div
+                                className="h-full bg-[#2563EB] rounded-full opacity-80"
+                                style={{ width: `${(localStorage.getItem(`video_${data[index].videoId}_progress`)/localStorage.getItem(`video_${data[index].videoId}_duration`))*100}%` }}
+                              ></div>
+                            </div>
+                            <span
+                              className={`text-[11px] font-medium ${
+                                activeIndex === index
+                                  ? "text-[#2563EB]"
+                                  : "text-zinc-600"
+                              }
+                              ${localStorage.getItem(`video_${data[index].videoId}_progress`) ? '':'hidden'}
+                              `}
+                            >
+                              {`${Math.floor((localStorage.getItem(`video_${data[index].videoId}_progress`)/localStorage.getItem(`video_${data[index].videoId}_duration`))*100)}%`}
+                            </span>
+                          </div>
+                          
                         </div>
                       </div>
                     ))}
