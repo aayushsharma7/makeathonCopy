@@ -13,6 +13,7 @@ import {
   Sparkles,
   Bot,
   BookCopy,
+  SquareCheckBig,
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import Plyr from "plyr";
@@ -41,6 +42,8 @@ const CoursePlayer = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [currVideo, setCurrVideo] = useState("");
 
+  const [vidProgress, setVidProgress] = useState({});
+
   const [input, setInput] = useState("");
   const chatContainerRef = useRef(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -61,13 +64,21 @@ const CoursePlayer = () => {
   };
 
   useEffect(() => {
-    getData();
-    setActiveIndex(parseFloat(localStorage.getItem("last_video_played")));
+      getData();
   }, []);
+
+  useEffect(() => {
+    if (data.length > 0){
+      const currIndex = localStorage.getItem(`last_video_played_${data?.[activeIndex]?.playlist}`) || 0
+      console.log(localStorage.getItem(`last_video_played_${data?.[activeIndex]?.playlist}`))
+      setActiveIndex(parseFloat(currIndex));
+    }
+  }, [data]);
+
 
   const setActive = (index) => {
     setActiveIndex(index);
-    console.log(activeIndex);
+    // console.log(activeIndex);
   };
 
   useEffect(() => {
@@ -147,7 +158,7 @@ const CoursePlayer = () => {
     }
   };
 
-        console.log(Math.floor((currentTime/currDuration)*100));
+        // console.log(Math.floor((currentTime/currDuration)*100));
 
 
   useEffect(() => {
@@ -185,45 +196,98 @@ const CoursePlayer = () => {
     // plyrRef.current = player;
 
     player.on("ready", (event) => {
-      const progressedTime =
-        localStorage.getItem(`video_${currentVideoId}_progress`) || 0;
-      console.log(progressedTime);
-
-      event.detail.plyr.currentTime = parseFloat(progressedTime); // this parseFloat is required to convert string to number -- impp
-      setCurrDuration(player.duration);
-      setCurrVideo(activeIndex);
-      localStorage.setItem(`last_video_played`, activeIndex);
-      localStorage.setItem(`video_${currentVideoId}_duration`, player.duration);
-      // console.log(player.duration)
-      const newCompletedVideos = [...completedVideos].filter(
-        (num) => num !== activeIndex
-      );
-      setCompletedVideos(newCompletedVideos);
-      const compVids = JSON.stringify(newCompletedVideos);
-      localStorage.setItem(`completed_videos`, compVids);
+      
+      if(!JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))){
+          const obj = JSON.stringify({
+            progressTime: 0,
+            duration: player.duration,
+            completed: false
+          })
+          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
+          const progressedTime = 0;
+          // console.log(progressedTime);
+          event.detail.plyr.currentTime = parseFloat(progressedTime); // this parseFloat is required to convert string to number -- impp
+          setCurrDuration(player.duration);
+          setCurrVideo(activeIndex);
+          localStorage.setItem(`last_video_played_${data?.[activeIndex]?.playlist}`, activeIndex);
+      }
+      else{
+        const progressedTime = JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`)).progressTime || 0;
+        // console.log(progressedTime);
+        event.detail.plyr.currentTime = parseFloat(progressedTime); // this parseFloat is required to convert string to number -- impp
+        setCurrDuration(player.duration);
+        setCurrVideo(activeIndex);
+        localStorage.setItem(`last_video_played_${data?.[activeIndex]?.playlist}`, activeIndex);
+        // console.log(player.duration)
+        // const newCompletedVideos = [...completedVideos].filter(
+        //   (num) => num !== activeIndex
+        // );
+        // setCompletedVideos(newCompletedVideos);
+        // const compVids = JSON.stringify(newCompletedVideos);
+        // localStorage.setItem(`completed_videos`, compVids);
+      }
+      
     });
     player.on("timeupdate", (event) => {
       //simple event listener when currentTime attribute of player updates
       const time = event.detail.plyr.currentTime;
       setCurrentTime(time);
-      if (time > 1) {
-        const progressTime = Math.floor(time);
-        localStorage.setItem(`video_${currentVideoId}_progress`, progressTime);
-      };
+      if(JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))){
+          if(JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`)).completed !== true){
+          if (time > 1) {
+          const progressTime = Math.floor(time);
+          const obj = JSON.stringify({
+            progressTime,
+            duration: player.duration,
+            completed: false
+          })
+          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
+        };
+        }
+      }
+      
       
     });
     player.on("seeked", (event) => {
       const time = event.detail.plyr.currentTime;
       setCurrentTime(time);
-      if (time > 1) {
-        const progressTime = Math.floor(time);
-        localStorage.setItem(`video_${currentVideoId}_progress`, progressTime);
+      if(JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))){
+          if(JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`)).completed !== true){
+          if (time > 1) {
+          const progressTime = Math.floor(time);
+          const obj = JSON.stringify({
+            progressTime,
+            duration: player.duration,
+            completed: false
+          })
+          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
+        };
+        }
       }
     });
     player.on("ended", (event) => {
-      setCompletedVideos((prev) => [...prev, activeIndex]);
-      const compVids = JSON.stringify([...completedVideos, activeIndex]);
-      localStorage.setItem(`completed_videos`, compVids);
+      const time = event.detail.plyr.currentTime;
+      setCurrentTime(time);
+      if(JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))){
+          if(JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`)).completed !== true){
+          if (time > 1) {
+          const progressTime = Math.floor(time);
+          const obj = JSON.stringify({
+            progressTime: player.duration,
+            duration: player.duration,
+            completed: true
+          })
+          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
+        };
+        }
+      }
+      const completedVids = JSON.parse(localStorage.getItem('completed_videos')) || [-1,];
+      if(completedVids.filter((num) => num ===activeIndex).length === 0){
+        const compVids = JSON.stringify([...completedVids, activeIndex]);
+        setCompletedVideos((prev) => [...prev, activeIndex]);
+        // const compVids = JSON.stringify([...completedVideos, activeIndex]);
+        localStorage.setItem(`completed_videos`, compVids);
+      }
       // event.detail.plyr.stop();
     });
   }, [currentVideoId]);
@@ -524,8 +588,8 @@ const CoursePlayer = () => {
                     }`}
                   />
                 </div>
-                <span className="text-[11px] font-bold text-zinc-600">
-                  {activeIndex} / {data.length} Completed
+                <span className="text-[11px] font-bold text-zinc-400">
+                  {JSON.parse(localStorage.getItem('completed_videos'))?.length ? JSON.parse(localStorage.getItem('completed_videos'))?.length -1 :'0'} / {data.length} Completed
                 </span>
               </div>
 
@@ -537,7 +601,7 @@ const CoursePlayer = () => {
               >
                 <div className="overflow-hidden ">
                   {/* Scrollable Area */}
-                  <div className="p-3 pb-20 space-y-2 max-h-90 md:max-h-150 overflow-y-auto custom-scrollbar hover:pr-2">
+                  <div className="p-3 md:pb-20 space-y-2 max-h-90 md:max-h-150 overflow-y-auto custom-scrollbar hover:pr-2">
                     {data.map((video, index) => (
                       <div
                         onClick={() => {
@@ -561,15 +625,16 @@ const CoursePlayer = () => {
                   ${
                     activeIndex === index
                       ? "bg-[#2563EB] text-black "
-                      : "bg-transparent text-zinc-700 border border-white/5"
+                      : `bg-transparent text-zinc-700 border  ${JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.completed === true ? 'border-green-500/50':'border-white/5'}`
                   }
+                  
                 `}
                         >
                           {activeIndex === index ? (
                             <Play size={14} fill="black" />
                           ) : (
                             <span className="text-[10px] font-bold ">
-                              {index + 1}
+                              {JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.completed === true ? <div className="text-green-500"><SquareCheckBig size={14} /></div>: index + 1 }
                             </span>
                           )}
                         </div>
@@ -619,11 +684,10 @@ const CoursePlayer = () => {
                             
                           </div>
                           <div className="flex gap-2">
-                            <div className={`${localStorage.getItem(`video_${data[index].videoId}_progress`) ? '':'hidden'} w-full h-1 bg-zinc-800/50 rounded-full mt-2 overflow-hidden`}>
-                              {/* Change width style to simulate progress (e.g., width: '45%') */}
+                            <div className={`${JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime ? '':'hidden'} w-full h-1 bg-zinc-800/50 rounded-full mt-2 overflow-hidden`}>
                               <div
-                                className="h-full bg-[#2563EB] rounded-full opacity-80"
-                                style={{ width: `${(localStorage.getItem(`video_${data[index].videoId}_progress`)/localStorage.getItem(`video_${data[index].videoId}_duration`))*100}%` }}
+                                className={`h-full ${JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.completed === true ? 'bg-green-500':'bg-[#2563EB]'}  rounded-full opacity-80`}
+                                style={{ width: `${(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime /JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.duration)*100}%` }}
                               ></div>
                             </div>
                             <span
@@ -632,10 +696,10 @@ const CoursePlayer = () => {
                                   ? "text-[#2563EB]"
                                   : "text-zinc-600"
                               }
-                              ${localStorage.getItem(`video_${data[index].videoId}_progress`) ? '':'hidden'}
+                              ${JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime ? '':'hidden'}
                               `}
                             >
-                              {`${Math.floor((localStorage.getItem(`video_${data[index].videoId}_progress`)/localStorage.getItem(`video_${data[index].videoId}_duration`))*100)}%`}
+                              {`${Math.floor((JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime/JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.duration)*100)}%`}
                             </span>
                           </div>
                           
