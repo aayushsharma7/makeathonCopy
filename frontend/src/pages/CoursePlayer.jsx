@@ -281,13 +281,18 @@ const CoursePlayer = () => {
         };
         }
       }
-      const completedVids = JSON.parse(localStorage.getItem('completed_videos')) || [-1,];
+      const completedVids = JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`)) || [-1,];
       if(completedVids.filter((num) => num ===activeIndex).length === 0){
         const compVids = JSON.stringify([...completedVids, activeIndex]);
         setCompletedVideos((prev) => [...prev, activeIndex]);
         // const compVids = JSON.stringify([...completedVideos, activeIndex]);
-        localStorage.setItem(`completed_videos`, compVids);
+        localStorage.setItem(`completed_videos_${data?.[activeIndex]?.playlist}`, compVids);
       }
+      // if(activeIndex !== data?.length){
+      //   setInterval(() => {
+      //     setActiveIndex((prev) => prev+1);
+      //   },3000)
+      // }
       // event.detail.plyr.stop();
     });
   }, [currentVideoId]);
@@ -589,7 +594,7 @@ const CoursePlayer = () => {
                   />
                 </div>
                 <span className="text-[11px] font-bold text-zinc-400">
-                  {JSON.parse(localStorage.getItem('completed_videos'))?.length ? JSON.parse(localStorage.getItem('completed_videos'))?.length -1 :'0'} / {data.length} Completed
+                  {JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`))?.length ? JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`))?.length -1 :'0'} / {data.length} Completed
                 </span>
               </div>
 
