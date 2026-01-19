@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, act } from "react";
 import {
   Play,
   Pause,
@@ -25,6 +25,7 @@ import { fetchTranscript } from "youtube-transcript-plus";
 
 const CoursePlayer = () => {
   const [data, setData] = useState([]);
+  const [courseData, setCourseData] = useState({})
   const { name, id } = useParams();
   const [activeIndex, setActiveIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -42,7 +43,8 @@ const CoursePlayer = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [currVideo, setCurrVideo] = useState("");
 
-  const [vidProgress, setVidProgress] = useState({});
+  const [videoProgress, setVideoProgress] = useState({});
+  const [courseProgress, setCourseProgress] = useState({});
 
   const [input, setInput] = useState("");
   const chatContainerRef = useRef(null);
@@ -52,10 +54,22 @@ const CoursePlayer = () => {
   const getData = async () => {
     try {
       const apiData = await axios.get(
-        `http://localhost:3000/course/data/${id.split("}")[0]}`
+        `http://localhost:3000/course/data/${id.split("}")[0]}`,{
+          withCredentials: true
+        }
       );
+      const courseApiData = await axios.get(
+        `http://localhost:3000/course/${id.split("}")[0]}`,{
+          withCredentials: true
+        }
+      );
+        const currIndex = localStorage.getItem(`last_video_played_${apiData?.data?.[activeIndex]?.playlist}`) || courseApiData?.data?.[0]?.lastVideoPlayed || 0
+        // console.log(localStorage.getItem(`last_video_played_${data?.[activeIndex]?.playlist}`))
+        setActiveIndex(parseFloat(currIndex));
       // console.log(apiData.data);
       setData(apiData.data);
+      setCourseData(courseApiData.data);
+      console.log(courseApiData.data);
     } catch (error) {
       console.log(error);
     } finally {
@@ -67,13 +81,7 @@ const CoursePlayer = () => {
       getData();
   }, []);
 
-  useEffect(() => {
-    if (data.length > 0){
-      const currIndex = localStorage.getItem(`last_video_played_${data?.[activeIndex]?.playlist}`) || 0
-      console.log(localStorage.getItem(`last_video_played_${data?.[activeIndex]?.playlist}`))
-      setActiveIndex(parseFloat(currIndex));
-    }
-  }, [data]);
+  
 
 
   const setActive = (index) => {
@@ -134,7 +142,7 @@ const CoursePlayer = () => {
             role: "user",
             content: input,
           },
-        });
+        },{withCredentials: true});
 
         setMessages((prev) => [
           ...prev,
@@ -158,7 +166,9 @@ const CoursePlayer = () => {
     }
   };
 
-        // console.log(Math.floor((currentTime/currDuration)*100));
+
+
+  // console.log(Math.floor((currentTime/currDuration)*100));
 
 
   useEffect(() => {
@@ -197,36 +207,39 @@ const CoursePlayer = () => {
 
     player.on("ready", (event) => {
       
-      if(!JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))){
-          const obj = JSON.stringify({
-            progressTime: 0,
-            duration: player.duration,
-            completed: false
-          })
-          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
-          const progressedTime = 0;
+      // if(!JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))){
+      //     const obj = JSON.stringify({
+      //       progressTime: 0,
+      //       duration: player.duration,
+      //       completed: false
+      //     })
+      //     localStorage.setItem(`video_${currentVideoId}_progress`, obj );
+      //     const progressedTime = 0;
           // console.log(progressedTime);
-          event.detail.plyr.currentTime = parseFloat(progressedTime); // this parseFloat is required to convert string to number -- impp
-          setCurrDuration(player.duration);
-          setCurrVideo(activeIndex);
-          localStorage.setItem(`last_video_played_${data?.[activeIndex]?.playlist}`, activeIndex);
-      }
-      else{
-        const progressedTime = JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`)).progressTime || 0;
+      //     event.detail.plyr.currentTime = parseFloat(progressedTime); // this parseFloat is required to convert string to number -- impp
+      //     setCurrDuration(player.duration);
+      //     setCurrVideo(activeIndex);
+      //     localStorage.setItem(`last_video_played_${data?.[activeIndex]?.playlist}`, activeIndex);
+      // }
+        const progressedTime = JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))?.progressTime || data?.[activeIndex]?.progressTime;
         // console.log(progressedTime);
         event.detail.plyr.currentTime = parseFloat(progressedTime); // this parseFloat is required to convert string to number -- impp
         setCurrDuration(player.duration);
         setCurrVideo(activeIndex);
+        
         localStorage.setItem(`last_video_played_${data?.[activeIndex]?.playlist}`, activeIndex);
+        setCourseProgress({
+          id: data?.[activeIndex]?.playlist,
+          completedVideos: JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`)) || courseData?.[0]?.completedVideos,
+          lastVideoPlayed: localStorage.getItem(`last_video_played_${data?.[activeIndex]?.playlist}`) || courseData?.[0]?.lastVideoPlayed || 0
+        });
         // console.log(player.duration)
         // const newCompletedVideos = [...completedVideos].filter(
         //   (num) => num !== activeIndex
         // );
         // setCompletedVideos(newCompletedVideos);
         // const compVids = JSON.stringify(newCompletedVideos);
-        // localStorage.setItem(`completed_videos`, compVids);
-      }
-      
+        // localStorage.setItem(`completed_videos`, compVids);      
     });
     player.on("timeupdate", (event) => {
       //simple event listener when currentTime attribute of player updates
@@ -237,6 +250,32 @@ const CoursePlayer = () => {
           if (time > 1) {
           const progressTime = Math.floor(time);
           const obj = JSON.stringify({
+            progressTime,
+            duration: player.duration,
+            completed: false
+          });
+          setVideoProgress({
+            id: data?.[activeIndex]?._id,
+            progressTime,
+            duration: player.duration,
+            completed: false
+          })
+
+          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
+        };
+        }
+      }
+      else{
+        if(data?.[activeIndex]?.completed !== true){
+          if (time > 1) {
+          const progressTime = Math.floor(time);
+          const obj = JSON.stringify({
+            progressTime,
+            duration: player.duration,
+            completed: false
+          })
+          setVideoProgress({
+            id: data?.[activeIndex]?._id,
             progressTime,
             duration: player.duration,
             completed: false
@@ -260,9 +299,35 @@ const CoursePlayer = () => {
             duration: player.duration,
             completed: false
           })
+          setVideoProgress({
+            id: data?.[activeIndex]?._id,
+            progressTime,
+            duration: player.duration,
+            completed: false
+          })
           localStorage.setItem(`video_${currentVideoId}_progress`, obj );
         };
         }
+      }
+      else{
+        if(data?.[activeIndex]?.completed !== true){
+          if (time > 1) {
+          const progressTime = Math.floor(time);
+          const obj = JSON.stringify({
+            progressTime,
+            duration: player.duration,
+            completed: false
+          })
+          setVideoProgress({
+            id: data?.[activeIndex]?._id,
+            progressTime,
+            duration: player.duration,
+            completed: false
+          })
+          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
+        };
+        }
+
       }
     });
     player.on("ended", (event) => {
@@ -277,16 +342,48 @@ const CoursePlayer = () => {
             duration: player.duration,
             completed: true
           })
+          setVideoProgress({
+            id: data?.[activeIndex]?._id,
+            progressTime: player.duration,
+            duration: player.duration,
+            completed: true
+          })
+          
           localStorage.setItem(`video_${currentVideoId}_progress`, obj );
         };
         }
       }
-      const completedVids = JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`)) || [-1,];
+      else{
+        if(data?.[activeIndex]?.completed !== true){
+          if (time > 1) {
+          const progressTime = Math.floor(time);
+          const obj = JSON.stringify({
+            progressTime: player.duration,
+            duration: player.duration,
+            completed: true
+          })
+          setVideoProgress({
+            id: data?.[activeIndex]?._id,
+            progressTime: player.duration,
+            duration: player.duration,
+            completed: true
+          })
+          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
+        };
+        }
+      }
+      const completedVids = JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`)) || courseData?.[0]?.completedVideos;
       if(completedVids.filter((num) => num ===activeIndex).length === 0){
         const compVids = JSON.stringify([...completedVids, activeIndex]);
         setCompletedVideos((prev) => [...prev, activeIndex]);
         // const compVids = JSON.stringify([...completedVideos, activeIndex]);
+
         localStorage.setItem(`completed_videos_${data?.[activeIndex]?.playlist}`, compVids);
+        setCourseProgress({
+          id: data?.[activeIndex]?.playlist,
+          completedVideos: JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`)) || courseData?.[0]?.completedVideos,
+          lastVideoPlayed: localStorage.getItem(`last_video_played_${data?.[activeIndex]?.playlist}`) || courseData?.[0]?.lastVideoPlayed || 0
+        });
       }
       // if(activeIndex !== data?.length){
       //   setInterval(() => {
@@ -297,7 +394,62 @@ const CoursePlayer = () => {
     });
   }, [currentVideoId]);
 
-  if (loading)
+
+  // useState: When you update it, React re-renders (refreshes) the component to show the new data on the screen.
+  // useRef: When you update it, React does nothing visually. It remembers the value in the background, but the screen does not change.
+  const progressRef = useRef({
+    courseId: courseProgress?.id,
+    videoId: videoProgress?.id,
+    completedVideos: courseProgress?.completedVideos,
+    lastVideoPlayed: courseProgress?.lastVideoPlayed,
+    progressTime: videoProgress?.progressTime,
+    duration: videoProgress?.duration,
+    completed: videoProgress?.completed
+  });
+
+  useEffect(() => {
+    progressRef.current = {
+      courseId: courseProgress?.id,
+      videoId: videoProgress?.id,
+      completedVideos: courseProgress?.completedVideos,
+      lastVideoPlayed: courseProgress?.lastVideoPlayed,
+      progressTime: videoProgress?.progressTime,
+      duration: videoProgress?.duration,
+      completed: videoProgress?.completed
+    };
+  }, [courseProgress, videoProgress]);
+
+  useEffect(() => {
+    //using ref is v imp as we can update the status without re-rendering i.e if i accessed the states inside setInterval they would be having their old/value when mount happended
+    // but if i use ref (which acts like a box and tells interval to see whats changed) the current of ref updates and gives latest value to the interval
+    // the use effect runs when mounted first but interval runs every 5s and is cleared when unmounted...
+    const interval = setInterval(async () => {
+      const currentStatus = progressRef.current;
+      if (currentStatus.courseId && currentStatus.videoId) {
+      try { 
+        const courseApiRes = await axios.post(`http://localhost:3000/course/update/course`,{
+          completed_videos: currentStatus.completedVideos,
+          last_video_played: currentStatus.lastVideoPlayed,
+          courseId: currentStatus.courseId
+        },{withCredentials: true});
+        const videoApiRes = await axios.post(`http://localhost:3000/course/update/video`,{
+          progress_time: currentStatus.progressTime,
+          duration: currentStatus.duration,
+          completed: currentStatus.completed,
+          videoId: currentStatus.videoId
+        },{withCredentials: true});
+
+      } catch (error) {
+        console.log(error)
+      }
+    }
+    },5000)
+    // In React, the function you return inside a useEffect is called the Cleanup Function.
+    // React runs the Cleanup:Right before the component Unmounts (disappears).(If dependencies change) Right before running the effect again.
+    return () => clearInterval(interval);  //v imp to remove interval on unmount...
+  },[])
+
+  if (loading || !data || data.length === 0 || !data[activeIndex])
     return (
       <div className="flex items-center justify-center min-h-screen  selection:bg-[#2563EB] selection:text-black overflow-hidden relative">
         <div
@@ -483,6 +635,7 @@ const CoursePlayer = () => {
         </div>
       </div>
     );
+    
   return (
     <div className="min-h-screen  selection:bg-[#2563EB] selection:text-black text-white overflow-hidden relative flex flex-col">
       <style>{`
@@ -594,8 +747,8 @@ const CoursePlayer = () => {
                   />
                 </div>
                 <span className="text-[11px] font-bold text-zinc-400">
-                  {JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`))?.length ? JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`))?.length -1 :'0'} / {data.length} Completed
-                </span>
+                  {(JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`))?.length || courseData?.[0]?.completedVideos?.length) ? (JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`))?.length -1 || courseData?.[0]?.completedVideos?.length -1 ) : courseData?.[0]?.completedVideos?.length -1} / {data?.length} Completed
+                </span> 
               </div>
 
               {/* Body */}
@@ -630,7 +783,7 @@ const CoursePlayer = () => {
                   ${
                     activeIndex === index
                       ? "bg-[#2563EB] text-black "
-                      : `bg-transparent text-zinc-700 border  ${JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.completed === true ? 'border-green-500/50':'border-white/5'}`
+                      : `bg-transparent text-zinc-700 border  ${(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.completed || data?.[index]?.completed)  === true ? 'border-green-500/50':'border-white/5'}`
                   }
                   
                 `}
@@ -639,7 +792,7 @@ const CoursePlayer = () => {
                             <Play size={14} fill="black" />
                           ) : (
                             <span className="text-[10px] font-bold ">
-                              {JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.completed === true ? <div className="text-green-500"><SquareCheckBig size={14} /></div>: index + 1 }
+                              {(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.completed || data?.[index]?.completed) === true ? <div className="text-green-500"><SquareCheckBig size={14} /></div>: index + 1 }
                             </span>
                           )}
                         </div>
@@ -689,10 +842,10 @@ const CoursePlayer = () => {
                             
                           </div>
                           <div className="flex gap-2">
-                            <div className={`${JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime ? '':'hidden'} w-full h-1 bg-zinc-800/50 rounded-full mt-2 overflow-hidden`}>
+                            <div className={`${(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime || data?.[index]?.progressTime) ? '':'hidden'} w-full h-1 bg-zinc-800/50 rounded-full mt-2 overflow-hidden`}>
                               <div
-                                className={`h-full ${JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.completed === true ? 'bg-green-500':'bg-[#2563EB]'}  rounded-full opacity-80`}
-                                style={{ width: `${(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime /JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.duration)*100}%` }}
+                                className={`h-full ${(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.completed || data[index].completed) === true ? 'bg-green-500':'bg-[#2563EB]'}  rounded-full opacity-80`}
+                                style={{ width: `${((JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime || data?.[index]?.progressTime) /(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.duration || data[index].totalDuration))*100}%` }}
                               ></div>
                             </div>
                             <span
@@ -701,10 +854,10 @@ const CoursePlayer = () => {
                                   ? "text-[#2563EB]"
                                   : "text-zinc-600"
                               }
-                              ${JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime ? '':'hidden'}
+                              ${(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime || data?.[index]?.progressTime) ? '':'hidden'}
                               `}
                             >
-                              {`${Math.floor((JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime/JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.duration)*100)}%`}
+                              {`${Math.floor(((JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime || data?.[index]?.progressTime)/(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.duration || data[index].totalDuration))*100)}%`}
                             </span>
                           </div>
                           

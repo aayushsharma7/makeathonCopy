@@ -46,14 +46,14 @@ const Login = () => {
       
 
       <div
-  className="absolute inset-0 z-0 animate-grid" // <--- Added class here
+  className="absolute inset-0 z-0 animate-grid"
   style={{
     backgroundColor: '#0a0a0a',
     backgroundImage: `
       radial-gradient(circle at 25% 25%, #222222 0.5px, transparent 1px),
       radial-gradient(circle at 75% 75%, #111111 0.5px, transparent 1px)
     `,
-    backgroundSize: '10px 10px', // The animation moves exactly this distance
+    backgroundSize: '10px 10px',
     imageRendering: 'pixelated',
   }}
 />

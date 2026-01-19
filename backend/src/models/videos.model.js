@@ -33,6 +33,18 @@ const videoModel = new mongoose.Schema({
         type: String,
         required:true
     },
+    progressTime: {
+        type: Number,
+        default: 0
+    },
+    totalDuration: {
+        type: Number,
+        default: 0
+    },
+    completed: {
+        type: Boolean,
+        default: false
+    }
 
 },{timestamps: true});
 

@@ -35,6 +35,8 @@ export const courseController = async (req,res) => {
                 videos: [],
                 owner: req.user.username,
                 thumbnail: courseData.data.items[0].snippet.thumbnails.maxres?.url || courseData.data.items[0].snippet.thumbnails.standard?.url || courseData.data.items[0].snippet.thumbnails.high?.url || courseData.data.items[0].snippet.thumbnails.default?.url,
+                completedVideos: [-1],
+                lastVideoPlayed: 0
             })
             newCourse.save();
 
@@ -48,7 +50,10 @@ export const courseController = async (req,res) => {
                     thumbnail:vid.snippet.thumbnails.maxres?.url || vid.snippet.thumbnails.standard?.url || vid.snippet.thumbnails.high?.url || vid.snippet.thumbnails.default?.url,
                     //maxres wasnt available in some vids so set OR
                     videoId:vid.snippet.resourceId.videoId,
-                    duration:videoData.data?.items?.[idx]?.contentDetails?.duration ?? "PT0S"
+                    duration:videoData.data?.items?.[idx]?.contentDetails?.duration ?? "PT0S",
+                    progressTime: 0,
+                    totalDuration: 0,
+                    completed: false,
                 }
             })
 
@@ -75,10 +80,26 @@ export const courseController = async (req,res) => {
     }
 }
 
+
 export const getCourse =  async (req,res) => {
     try {
         const courses = await Course.find({
             owner: req.user.username
+        })
+        if(courses.length===0){
+            res.status(200).send("No courses found")
+        }
+        else{
+            res.status(200).send(courses)
+        }
+    } catch (error) {
+        console.log(error)
+    }
+}
+export const getSingleCourse =  async (req,res) => {
+    try {
+        const courses = await Course.find({
+            _id: req.params.id
         })
         if(courses.length===0){
             res.status(200).send("No courses found")
@@ -195,6 +216,42 @@ export const getAi = async (req,res) => {
     //     contents: "Here is a video link: https://www.youtube.com/watch?v=IBrmsyy9R94&pp=ygUYbGF6eSBsb2FkaW5nIGluIHJlYWN0IGpz,  Now can you see/learn/know what is inside the videoa and answer questions based on the video if asked? ",
     // });
     // res.send(response.text);
+}
+
+export const updateCourseProgess = async (req,res) => {
+    try {
+        const {completed_videos, last_video_played, courseId} = req.body;
+        
+        const newUpdatedCourse = await Course.findByIdAndUpdate(courseId, {
+            completedVideos: completed_videos,
+            lastVideoPlayed: last_video_played,
+        });
+
+        res.status(200).send("Course Progress Updated Successfully")
+        // console.log("Course Progress Updated Successfully")
+
+    } catch (error) {
+        console.error("Chat Error:", error);
+        res.status(500).json({ error: "Server Error" });
+    }
+}
+export const updateVideoProgess = async (req,res) => {
+    try {
+        const {progress_time, duration, completed, videoId} = req.body;
+        const newUpdatedVideo = await Video.findByIdAndUpdate(videoId, {
+            progressTime: progress_time,
+            totalDuration: duration,
+            completed: completed
+        });
+
+        res.status(200).send("Video Progress Updated Successfully")
+                // console.log("Video Progress Updated Successfully")
+
+
+    } catch (error) {
+        console.error("Chat Error:", error);
+        res.status(500).json({ error: "Server Error" });
+    }
 }
 // courseData.data.items.map((vid,idx) => {
         //     const newVid =  new Video({

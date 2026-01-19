@@ -25,7 +25,14 @@ const courseModel = new mongoose.Schema({
     owner: {
         type: String,
         required: true
-    }
+    },
+    completedVideos: [{
+        type: Number,
+    }],
+    lastVideoPlayed: {
+        type: Number,
+        default: 0
+    },
 
 },{timestamps: true});
 
