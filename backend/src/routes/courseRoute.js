@@ -1,5 +1,5 @@
 import express from "express"
-import { courseController, getAi, getCourse, getCourseData, getSingleCourse, getVideo, updateCourseProgess, updateVideoProgess } from "../controllers/course.controller.js";
+import { courseController, getAi, getCourse,updateVideoNotes, getCourseData, getSingleCourse, getVideo, updateCourseProgess, updateVideoProgess } from "../controllers/course.controller.js";
 import { authCheck } from "../middlewares/authCheck.js";
 
 const router = express.Router()
@@ -12,6 +12,7 @@ router.get('/:id', authCheck, getSingleCourse);
 router.get('/data/:id', getCourseData)
 router.post('/update/course',authCheck, updateCourseProgess)
 router.post('/update/video',authCheck, updateVideoProgess)
+router.post('/update/video/notes',authCheck, updateVideoNotes)
 
 router.get('/video/:id', getVideo)
 router.post('/ai',authCheck, getAi)

@@ -14,6 +14,9 @@ import {
   Bot,
   BookCopy,
   SquareCheckBig,
+  PencilRuler,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import Plyr from "plyr";
@@ -25,11 +28,14 @@ import { fetchTranscript } from "youtube-transcript-plus";
 
 const CoursePlayer = () => {
   const [data, setData] = useState([]);
-  const [courseData, setCourseData] = useState({})
+  const [courseData, setCourseData] = useState({});
   const { name, id } = useParams();
   const [activeIndex, setActiveIndex] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [isOpen, setIsOpen] = useState(true);
+  const [isContentOpen, setIsContentOpen] = useState(true);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isCardsOpen, setIsCardsOpen] = useState(false);
+  const playerInstanceRef = useRef(null); // to use the player outside the useeffect...
   const [messages, setMessages] = useState([
     {
       role: "system",
@@ -42,6 +48,7 @@ const CoursePlayer = () => {
   // const plyrRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [currVideo, setCurrVideo] = useState("");
+  const [notesLoading, setNotesLoading] = useState(true)
 
   const [videoProgress, setVideoProgress] = useState({});
   const [courseProgress, setCourseProgress] = useState({});
@@ -50,26 +57,34 @@ const CoursePlayer = () => {
   const chatContainerRef = useRef(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [completedVideos, setCompletedVideos] = useState([-1]);
+  const [currentVideoNotes, setCurrentVideoNotes] = useState([]);
+  const [notesInput, setNotesInput] = useState("")
 
   const getData = async () => {
     try {
       const apiData = await axios.get(
-        `http://localhost:3000/course/data/${id.split("}")[0]}`,{
-          withCredentials: true
+        `http://localhost:3000/course/data/${id.split("}")[0]}`,
+        {
+          withCredentials: true,
         }
       );
       const courseApiData = await axios.get(
-        `http://localhost:3000/course/${id.split("}")[0]}`,{
-          withCredentials: true
+        `http://localhost:3000/course/${id.split("}")[0]}`,
+        {
+          withCredentials: true,
         }
       );
-        const currIndex = localStorage.getItem(`last_video_played_${apiData?.data?.[activeIndex]?.playlist}`) || courseApiData?.data?.[0]?.lastVideoPlayed || 0
-        // console.log(localStorage.getItem(`last_video_played_${data?.[activeIndex]?.playlist}`))
-        setActiveIndex(parseFloat(currIndex));
+      const currIndex =
+        localStorage.getItem(
+          `last_video_played_${apiData?.data?.[activeIndex]?.playlist}`
+        ) ||
+        courseApiData?.data?.[0]?.lastVideoPlayed ||
+        0;
+      // console.log(localStorage.getItem(`last_video_played_${data?.[activeIndex]?.playlist}`))
+      setActiveIndex(parseFloat(currIndex));
       // console.log(apiData.data);
       setData(apiData.data);
       setCourseData(courseApiData.data);
-      console.log(courseApiData.data);
     } catch (error) {
       console.log(error);
     } finally {
@@ -78,11 +93,25 @@ const CoursePlayer = () => {
   };
 
   useEffect(() => {
-      getData();
+    getData();
   }, []);
 
-  
-
+  const getNotesData = async () => {
+    try {
+      const apiData = await axios.get(
+        `http://localhost:3000/course/data/${id.split("}")[0]}`,
+        {
+          withCredentials: true,
+        }
+      );
+      setCurrentVideoNotes(apiData?.data?.[activeIndex]?.notes);
+      
+    } catch (error) {
+      console.log(error);
+    } finally {
+      setNotesLoading(false);
+    }
+  }
 
   const setActive = (index) => {
     setActiveIndex(index);
@@ -102,7 +131,27 @@ const CoursePlayer = () => {
   const handleInput = (e) => {
     setInput(e.target.value);
   };
+  const handleNotesInput = (e) => {
+    setNotesInput(e.target.value);
+  };
 
+  const handleNotesSubmit = async (e) => {
+    e.preventDefault();
+    setCurrentVideoNotes((prev) => [...prev, {
+      timestamp: Math.floor(playerInstanceRef.current.currentTime) || JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))?.progressTime || data?.[activeIndex]?.progressTime || 0,
+      notesContent: notesInput
+    }]);
+    const apiRes = await axios.post( "http://localhost:3000/course/update/video/notes",{
+      videoId: data?.[activeIndex]?._id,
+      newNote: {
+        timestamp: JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))?.progressTime || data?.[activeIndex]?.progressTime ||0,
+        notesContent: notesInput
+      }
+    },
+    { withCredentials: true })
+    setNotesInput("");
+    
+  };
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isChatLoading) {
@@ -127,22 +176,26 @@ const CoursePlayer = () => {
         const start = currentTime > 25 ? Math.floor(currentTime) - 25 : 0;
         const end = Math.floor(currentTime) + 25;
 
-        const resp = await axios.post("http://localhost:3000/course/ai", {
-          messages: [
-            ...messages,
-            {
+        const resp = await axios.post(
+          "http://localhost:3000/course/ai",
+          {
+            messages: [
+              ...messages,
+              {
+                role: "user",
+                content: input,
+              },
+            ].slice(-6),
+            videoId: data?.[activeIndex]?.videoId,
+            start,
+            end,
+            currentQues: {
               role: "user",
               content: input,
             },
-          ].slice(-6),
-          videoId: data?.[activeIndex]?.videoId,
-          start,
-          end,
-          currentQues: {
-            role: "user",
-            content: input,
           },
-        },{withCredentials: true});
+          { withCredentials: true }
+        );
 
         setMessages((prev) => [
           ...prev,
@@ -168,8 +221,8 @@ const CoursePlayer = () => {
 
 
 
-  // console.log(Math.floor((currentTime/currDuration)*100));
 
+  // console.log(Math.floor((currentTime/currDuration)*100));
 
   useEffect(() => {
     setMessages([
@@ -203,10 +256,12 @@ const CoursePlayer = () => {
       ratio: "16:9",
     });
 
+   
+
     // plyrRef.current = player;
 
     player.on("ready", (event) => {
-      
+      playerInstanceRef.current = player;
       // if(!JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))){
       //     const obj = JSON.stringify({
       //       progressTime: 0,
@@ -215,174 +270,216 @@ const CoursePlayer = () => {
       //     })
       //     localStorage.setItem(`video_${currentVideoId}_progress`, obj );
       //     const progressedTime = 0;
-          // console.log(progressedTime);
+      // console.log(progressedTime);
       //     event.detail.plyr.currentTime = parseFloat(progressedTime); // this parseFloat is required to convert string to number -- impp
       //     setCurrDuration(player.duration);
       //     setCurrVideo(activeIndex);
       //     localStorage.setItem(`last_video_played_${data?.[activeIndex]?.playlist}`, activeIndex);
       // }
-        const progressedTime = JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))?.progressTime || data?.[activeIndex]?.progressTime;
-        // console.log(progressedTime);
-        event.detail.plyr.currentTime = parseFloat(progressedTime); // this parseFloat is required to convert string to number -- impp
-        setCurrDuration(player.duration);
-        setCurrVideo(activeIndex);
-        
-        localStorage.setItem(`last_video_played_${data?.[activeIndex]?.playlist}`, activeIndex);
-        setCourseProgress({
-          id: data?.[activeIndex]?.playlist,
-          completedVideos: JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`)) || courseData?.[0]?.completedVideos,
-          lastVideoPlayed: localStorage.getItem(`last_video_played_${data?.[activeIndex]?.playlist}`) || courseData?.[0]?.lastVideoPlayed || 0
-        });
-        // console.log(player.duration)
-        // const newCompletedVideos = [...completedVideos].filter(
-        //   (num) => num !== activeIndex
-        // );
-        // setCompletedVideos(newCompletedVideos);
-        // const compVids = JSON.stringify(newCompletedVideos);
-        // localStorage.setItem(`completed_videos`, compVids);      
+      const progressedTime =
+        JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))
+          ?.progressTime || data?.[activeIndex]?.progressTime;
+      // console.log(progressedTime);
+      event.detail.plyr.currentTime = parseFloat(progressedTime); // this parseFloat is required to convert string to number -- impp
+      setCurrDuration(player.duration);
+      setCurrVideo(activeIndex);
+
+      localStorage.setItem(
+        `last_video_played_${data?.[activeIndex]?.playlist}`,
+        activeIndex
+      );
+      setCourseProgress({
+        id: data?.[activeIndex]?.playlist,
+        completedVideos:
+          JSON.parse(
+            localStorage.getItem(
+              `completed_videos_${data?.[activeIndex]?.playlist}`
+            )
+          ) || courseData?.[0]?.completedVideos,
+        lastVideoPlayed:
+          localStorage.getItem(
+            `last_video_played_${data?.[activeIndex]?.playlist}`
+          ) ||
+          courseData?.[0]?.lastVideoPlayed ||
+          0,
+      });
+      // console.log(player.duration)
+      // const newCompletedVideos = [...completedVideos].filter(
+      //   (num) => num !== activeIndex
+      // );
+      // setCompletedVideos(newCompletedVideos);
+      // const compVids = JSON.stringify(newCompletedVideos);
+      // localStorage.setItem(`completed_videos`, compVids);
     });
     player.on("timeupdate", (event) => {
       //simple event listener when currentTime attribute of player updates
       const time = event.detail.plyr.currentTime;
       setCurrentTime(time);
-      if(JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))){
-          if(JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`)).completed !== true){
+      if (
+        JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))
+      ) {
+        if (
+          JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))
+            .completed !== true
+        ) {
           if (time > 1) {
-          const progressTime = Math.floor(time);
-          const obj = JSON.stringify({
-            progressTime,
-            duration: player.duration,
-            completed: false
-          });
-          setVideoProgress({
-            id: data?.[activeIndex]?._id,
-            progressTime,
-            duration: player.duration,
-            completed: false
-          })
+            const progressTime = Math.floor(time);
+            const obj = JSON.stringify({
+              progressTime,
+              duration: player.duration,
+              completed: false,
+            });
+            setVideoProgress({
+              id: data?.[activeIndex]?._id,
+              progressTime,
+              duration: player.duration,
+              completed: false,
+            });
 
-          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
-        };
+            localStorage.setItem(`video_${currentVideoId}_progress`, obj);
+          }
         }
-      }
-      else{
-        if(data?.[activeIndex]?.completed !== true){
+      } else {
+        if (data?.[activeIndex]?.completed !== true) {
           if (time > 1) {
-          const progressTime = Math.floor(time);
-          const obj = JSON.stringify({
-            progressTime,
-            duration: player.duration,
-            completed: false
-          })
-          setVideoProgress({
-            id: data?.[activeIndex]?._id,
-            progressTime,
-            duration: player.duration,
-            completed: false
-          })
-          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
-        };
+            const progressTime = Math.floor(time);
+            const obj = JSON.stringify({
+              progressTime,
+              duration: player.duration,
+              completed: false,
+            });
+            setVideoProgress({
+              id: data?.[activeIndex]?._id,
+              progressTime,
+              duration: player.duration,
+              completed: false,
+            });
+            localStorage.setItem(`video_${currentVideoId}_progress`, obj);
+          }
         }
       }
-      
-      
     });
     player.on("seeked", (event) => {
       const time = event.detail.plyr.currentTime;
       setCurrentTime(time);
-      if(JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))){
-          if(JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`)).completed !== true){
+      if (
+        JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))
+      ) {
+        if (
+          JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))
+            .completed !== true
+        ) {
           if (time > 1) {
-          const progressTime = Math.floor(time);
-          const obj = JSON.stringify({
-            progressTime,
-            duration: player.duration,
-            completed: false
-          })
-          setVideoProgress({
-            id: data?.[activeIndex]?._id,
-            progressTime,
-            duration: player.duration,
-            completed: false
-          })
-          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
-        };
+            const progressTime = Math.floor(time);
+            const obj = JSON.stringify({
+              progressTime,
+              duration: player.duration,
+              completed: false,
+            });
+            setVideoProgress({
+              id: data?.[activeIndex]?._id,
+              progressTime,
+              duration: player.duration,
+              completed: false,
+            });
+            localStorage.setItem(`video_${currentVideoId}_progress`, obj);
+          }
         }
-      }
-      else{
-        if(data?.[activeIndex]?.completed !== true){
+      } else {
+        if (data?.[activeIndex]?.completed !== true) {
           if (time > 1) {
-          const progressTime = Math.floor(time);
-          const obj = JSON.stringify({
-            progressTime,
-            duration: player.duration,
-            completed: false
-          })
-          setVideoProgress({
-            id: data?.[activeIndex]?._id,
-            progressTime,
-            duration: player.duration,
-            completed: false
-          })
-          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
-        };
+            const progressTime = Math.floor(time);
+            const obj = JSON.stringify({
+              progressTime,
+              duration: player.duration,
+              completed: false,
+            });
+            setVideoProgress({
+              id: data?.[activeIndex]?._id,
+              progressTime,
+              duration: player.duration,
+              completed: false,
+            });
+            localStorage.setItem(`video_${currentVideoId}_progress`, obj);
+          }
         }
-
       }
     });
     player.on("ended", (event) => {
       const time = event.detail.plyr.currentTime;
       setCurrentTime(time);
-      if(JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))){
-          if(JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`)).completed !== true){
+      if (
+        JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))
+      ) {
+        if (
+          JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))
+            .completed !== true
+        ) {
           if (time > 1) {
-          const progressTime = Math.floor(time);
-          const obj = JSON.stringify({
-            progressTime: player.duration,
-            duration: player.duration,
-            completed: true
-          })
-          setVideoProgress({
-            id: data?.[activeIndex]?._id,
-            progressTime: player.duration,
-            duration: player.duration,
-            completed: true
-          })
-          
-          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
-        };
+            const progressTime = Math.floor(time);
+            const obj = JSON.stringify({
+              progressTime: player.duration,
+              duration: player.duration,
+              completed: true,
+            });
+            setVideoProgress({
+              id: data?.[activeIndex]?._id,
+              progressTime: player.duration,
+              duration: player.duration,
+              completed: true,
+            });
+
+            localStorage.setItem(`video_${currentVideoId}_progress`, obj);
+          }
+        }
+      } else {
+        if (data?.[activeIndex]?.completed !== true) {
+          if (time > 1) {
+            const progressTime = Math.floor(time);
+            const obj = JSON.stringify({
+              progressTime: player.duration,
+              duration: player.duration,
+              completed: true,
+            });
+            setVideoProgress({
+              id: data?.[activeIndex]?._id,
+              progressTime: player.duration,
+              duration: player.duration,
+              completed: true,
+            });
+            localStorage.setItem(`video_${currentVideoId}_progress`, obj);
+          }
         }
       }
-      else{
-        if(data?.[activeIndex]?.completed !== true){
-          if (time > 1) {
-          const progressTime = Math.floor(time);
-          const obj = JSON.stringify({
-            progressTime: player.duration,
-            duration: player.duration,
-            completed: true
-          })
-          setVideoProgress({
-            id: data?.[activeIndex]?._id,
-            progressTime: player.duration,
-            duration: player.duration,
-            completed: true
-          })
-          localStorage.setItem(`video_${currentVideoId}_progress`, obj );
-        };
-        }
-      }
-      const completedVids = JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`)) || courseData?.[0]?.completedVideos;
-      if(completedVids.filter((num) => num ===activeIndex).length === 0){
+      const completedVids =
+        JSON.parse(
+          localStorage.getItem(
+            `completed_videos_${data?.[activeIndex]?.playlist}`
+          )
+        ) || courseData?.[0]?.completedVideos;
+      if (completedVids.filter((num) => num === activeIndex).length === 0) {
         const compVids = JSON.stringify([...completedVids, activeIndex]);
         setCompletedVideos((prev) => [...prev, activeIndex]);
         // const compVids = JSON.stringify([...completedVideos, activeIndex]);
 
-        localStorage.setItem(`completed_videos_${data?.[activeIndex]?.playlist}`, compVids);
+        localStorage.setItem(
+          `completed_videos_${data?.[activeIndex]?.playlist}`,
+          compVids
+        );
         setCourseProgress({
           id: data?.[activeIndex]?.playlist,
-          completedVideos: JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`)) || courseData?.[0]?.completedVideos,
-          lastVideoPlayed: localStorage.getItem(`last_video_played_${data?.[activeIndex]?.playlist}`) || courseData?.[0]?.lastVideoPlayed || 0
+          completedVideos:
+            JSON.parse(
+              localStorage.getItem(
+                `completed_videos_${data?.[activeIndex]?.playlist}`
+              )
+            ) || courseData?.[0]?.completedVideos,
+          lastVideoPlayed:
+            localStorage.getItem(
+              `last_video_played_${data?.[activeIndex]?.playlist}`
+            ) ||
+            courseData?.[0]?.lastVideoPlayed ||
+            0,
         });
       }
       // if(activeIndex !== data?.length){
@@ -394,7 +491,6 @@ const CoursePlayer = () => {
     });
   }, [currentVideoId]);
 
-
   // useState: When you update it, React re-renders (refreshes) the component to show the new data on the screen.
   // useRef: When you update it, React does nothing visually. It remembers the value in the background, but the screen does not change.
   const progressRef = useRef({
@@ -404,7 +500,7 @@ const CoursePlayer = () => {
     lastVideoPlayed: courseProgress?.lastVideoPlayed,
     progressTime: videoProgress?.progressTime,
     duration: videoProgress?.duration,
-    completed: videoProgress?.completed
+    completed: videoProgress?.completed,
   });
 
   useEffect(() => {
@@ -415,7 +511,7 @@ const CoursePlayer = () => {
       lastVideoPlayed: courseProgress?.lastVideoPlayed,
       progressTime: videoProgress?.progressTime,
       duration: videoProgress?.duration,
-      completed: videoProgress?.completed
+      completed: videoProgress?.completed,
     };
   }, [courseProgress, videoProgress]);
 
@@ -426,28 +522,35 @@ const CoursePlayer = () => {
     const interval = setInterval(async () => {
       const currentStatus = progressRef.current;
       if (currentStatus.courseId && currentStatus.videoId) {
-      try { 
-        const courseApiRes = await axios.post(`http://localhost:3000/course/update/course`,{
-          completed_videos: currentStatus.completedVideos,
-          last_video_played: currentStatus.lastVideoPlayed,
-          courseId: currentStatus.courseId
-        },{withCredentials: true});
-        const videoApiRes = await axios.post(`http://localhost:3000/course/update/video`,{
-          progress_time: currentStatus.progressTime,
-          duration: currentStatus.duration,
-          completed: currentStatus.completed,
-          videoId: currentStatus.videoId
-        },{withCredentials: true});
-
-      } catch (error) {
-        console.log(error)
+        try {
+          const courseApiRes = await axios.post(
+            `http://localhost:3000/course/update/course`,
+            {
+              completed_videos: currentStatus.completedVideos,
+              last_video_played: currentStatus.lastVideoPlayed,
+              courseId: currentStatus.courseId,
+            },
+            { withCredentials: true }
+          );
+          const videoApiRes = await axios.post(
+            `http://localhost:3000/course/update/video`,
+            {
+              progress_time: currentStatus.progressTime,
+              duration: currentStatus.duration,
+              completed: currentStatus.completed,
+              videoId: currentStatus.videoId,
+            },
+            { withCredentials: true }
+          );
+        } catch (error) {
+          console.log(error);
+        }
       }
-    }
-    },5000)
+    }, 5000);
     // In React, the function you return inside a useEffect is called the Cleanup Function.
     // React runs the Cleanup:Right before the component Unmounts (disappears).(If dependencies change) Right before running the effect again.
-    return () => clearInterval(interval);  //v imp to remove interval on unmount...
-  },[])
+    return () => clearInterval(interval); //v imp to remove interval on unmount...
+  }, []);
 
   if (loading || !data || data.length === 0 || !data[activeIndex])
     return (
@@ -635,7 +738,7 @@ const CoursePlayer = () => {
         </div>
       </div>
     );
-    
+
   return (
     <div className="min-h-screen  selection:bg-[#2563EB] selection:text-black text-white overflow-hidden relative flex flex-col">
       <style>{`
@@ -673,11 +776,11 @@ const CoursePlayer = () => {
       {/* --- CONTENT WRAPPER --- */}
       <div className="relative z-10 max-w-450 mx-auto p-4 md:p-4 flex flex-col w-full">
         {/* HEADER */}
-        <header className="flex items-center justify-between mb-6 shrink-0">
-          <div className="flex items-center gap-4">
+        <header className="flex items-center justify-between mb-4 shrink-0">
+          <div className="flex items-center justify-center gap-4">
             <Link
               to="/courses"
-              className="w-10 h-10 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
+              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
             >
               <ChevronLeft className="w-5 h-5 text-zinc-400 group-hover:text-white" />
             </Link>
@@ -685,14 +788,14 @@ const CoursePlayer = () => {
               <h1 className="text-xl font-bold tracking-tight text-white/90">
                 {name}
               </h1>
-              <div className="flex items-center gap-2 mt-0.5">
+            </div>
+          </div>
+          {/* <div className="flex items-center gap-2 mt-0.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
                 <p className="text-xs text-zinc-400 font-medium tracking-wide uppercase">
                   Episode {activeIndex + 1}
                 </p>
-              </div>
-            </div>
-          </div>
+              </div> */}
         </header>
 
         {/* MAIN LAYOUT */}
@@ -726,14 +829,18 @@ const CoursePlayer = () => {
             </div>
           </div>
 
-          {/* RIGHT COLUMN: PLAYLIST + CHAT */}
+          {/* RIGHT COLUMN: PLAYLIST + CHAT and Notes */}
           <div className="lg:col-span-4 flex flex-col gap-3">
             {/* 1. COURSE CONTENT ACCORDION */}
-            <div className="max-h-140 flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
+            <div className="max-h-135 flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
               {/* Header */}
               <div
-                onClick={() => setIsOpen(!isOpen)}
-                className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
+                onClick={() => {
+                  setIsContentOpen(true);
+                  setIsChatOpen(false)
+                  setIsCardsOpen(false)
+                }}
+                className="px-5 py-3 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
@@ -742,24 +849,36 @@ const CoursePlayer = () => {
                   <ChevronDown
                     size={14}
                     className={`text-zinc-500 transition-transform duration-500 ease-in-out ${
-                      isOpen ? "rotate-180" : "rotate-0"
+                      isContentOpen ? "rotate-180" : "rotate-0"
                     }`}
                   />
                 </div>
                 <span className="text-[11px] font-bold text-zinc-400">
-                  {(JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`))?.length || courseData?.[0]?.completedVideos?.length) ? (JSON.parse(localStorage.getItem(`completed_videos_${data?.[activeIndex]?.playlist}`))?.length -1 || courseData?.[0]?.completedVideos?.length -1 ) : courseData?.[0]?.completedVideos?.length -1} / {data?.length} Completed
-                </span> 
+                  {JSON.parse(
+                    localStorage.getItem(
+                      `completed_videos_${data?.[activeIndex]?.playlist}`
+                    )
+                  )?.length || courseData?.[0]?.completedVideos?.length
+                    ? JSON.parse(
+                        localStorage.getItem(
+                          `completed_videos_${data?.[activeIndex]?.playlist}`
+                        )
+                      )?.length - 1 ||
+                      courseData?.[0]?.completedVideos?.length - 1
+                    : courseData?.[0]?.completedVideos?.length - 1}{" "}
+                  / {data?.length} Completed
+                </span>
               </div>
 
               {/* Body */}
               <div
                 className={`grid transition-[grid-template-rows] duration-500 ease-in-out ${
-                  isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                  isContentOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
                 }`}
               >
                 <div className="overflow-hidden ">
                   {/* Scrollable Area */}
-                  <div className="p-3 md:pb-20 space-y-2 max-h-90 md:max-h-150 overflow-y-auto custom-scrollbar hover:pr-2">
+                  <div className="p-3 md:pb-28 space-y-2 max-h-90 md:max-h-150 overflow-y-auto custom-scrollbar hover:pr-2">
                     {data.map((video, index) => (
                       <div
                         onClick={() => {
@@ -770,7 +889,15 @@ const CoursePlayer = () => {
                 group flex items-center gap-4 p-3 rounded-xl transition-all duration-200 cursor-pointer border
                 ${
                   activeIndex === index
-                    ? "bg-[#2563EB]/5 border-[#2563EB]/20"
+                    ? ` ${
+                          (JSON.parse(
+                            localStorage.getItem(
+                              `video_${data[index].videoId}_progress`
+                            )
+                          )?.completed || data?.[index]?.completed) === true
+                            ? "bg-green-500/5 border-green-500/20"
+                            : "bg-[#2563EB]/5 border-[#2563EB]/20"
+                        }`
                     : "bg-transparent border-transparent hover:bg-white/5"
                 }
               `}
@@ -782,8 +909,24 @@ const CoursePlayer = () => {
                   w-8 h-8 rounded-md flex items-center justify-center shrink-0 transition-transform duration-500 
                   ${
                     activeIndex === index
-                      ? "bg-[#2563EB] text-black "
-                      : `bg-transparent text-zinc-700 border  ${(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.completed || data?.[index]?.completed)  === true ? 'border-green-500/50':'border-white/5'}`
+                      ? `${
+                          (JSON.parse(
+                            localStorage.getItem(
+                              `video_${data[index].videoId}_progress`
+                            )
+                          )?.completed || data?.[index]?.completed) === true
+                            ? "bg-green-500/80"
+                            : "bg-[#2563EB]"
+                        } text-black `
+                      : `bg-transparent text-zinc-700 border  ${
+                          (JSON.parse(
+                            localStorage.getItem(
+                              `video_${data[index].videoId}_progress`
+                            )
+                          )?.completed || data?.[index]?.completed) === true
+                            ? "border-green-500/50"
+                            : "border-white/5"
+                        }`
                   }
                   
                 `}
@@ -792,7 +935,18 @@ const CoursePlayer = () => {
                             <Play size={14} fill="black" />
                           ) : (
                             <span className="text-[10px] font-bold ">
-                              {(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.completed || data?.[index]?.completed) === true ? <div className="text-green-500"><SquareCheckBig size={14} /></div>: index + 1 }
+                              {(JSON.parse(
+                                localStorage.getItem(
+                                  `video_${data[index].videoId}_progress`
+                                )
+                              )?.completed || data?.[index]?.completed) ===
+                              true ? (
+                                <div className="text-green-500">
+                                  <SquareCheckBig size={14} />
+                                </div>
+                              ) : (
+                                index + 1
+                              )}
                             </span>
                           )}
                         </div>
@@ -839,13 +993,47 @@ const CoursePlayer = () => {
                                 .replace("M", ":")
                                 .replace("S", "")}
                             </span>
-                            
                           </div>
                           <div className="flex gap-2">
-                            <div className={`${(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime || data?.[index]?.progressTime) ? '':'hidden'} w-full h-1 bg-zinc-800/50 rounded-full mt-2 overflow-hidden`}>
+                            <div
+                              className={`${
+                                JSON.parse(
+                                  localStorage.getItem(
+                                    `video_${data[index].videoId}_progress`
+                                  )
+                                )?.progressTime || data?.[index]?.progressTime
+                                  ? ""
+                                  : "hidden"
+                              } w-full h-1 bg-zinc-800/50 rounded-full mt-2 overflow-hidden`}
+                            >
                               <div
-                                className={`h-full ${(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.completed || data[index].completed) === true ? 'bg-green-500':'bg-[#2563EB]'}  rounded-full opacity-80`}
-                                style={{ width: `${((JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime || data?.[index]?.progressTime) /(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.duration || data[index].totalDuration))*100}%` }}
+                                className={`h-full ${
+                                  (JSON.parse(
+                                    localStorage.getItem(
+                                      `video_${data[index].videoId}_progress`
+                                    )
+                                  )?.completed || data[index].completed) ===
+                                  true
+                                    ? "bg-green-500"
+                                    : "bg-[#2563EB]"
+                                }  rounded-full opacity-80`}
+                                style={{
+                                  width: `${
+                                    ((JSON.parse(
+                                      localStorage.getItem(
+                                        `video_${data[index].videoId}_progress`
+                                      )
+                                    )?.progressTime ||
+                                      data?.[index]?.progressTime) /
+                                      (JSON.parse(
+                                        localStorage.getItem(
+                                          `video_${data[index].videoId}_progress`
+                                        )
+                                      )?.duration ||
+                                        data[index].totalDuration)) *
+                                    100
+                                  }%`,
+                                }}
                               ></div>
                             </div>
                             <span
@@ -854,48 +1042,71 @@ const CoursePlayer = () => {
                                   ? "text-[#2563EB]"
                                   : "text-zinc-600"
                               }
-                              ${(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime || data?.[index]?.progressTime) ? '':'hidden'}
+                              ${
+                                JSON.parse(
+                                  localStorage.getItem(
+                                    `video_${data[index].videoId}_progress`
+                                  )
+                                )?.progressTime || data?.[index]?.progressTime
+                                  ? ""
+                                  : "hidden"
+                              }
                               `}
                             >
-                              {`${Math.floor(((JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.progressTime || data?.[index]?.progressTime)/(JSON.parse(localStorage.getItem(`video_${data[index].videoId}_progress`))?.duration || data[index].totalDuration))*100)}%`}
+                              {`${Math.floor(
+                                ((JSON.parse(
+                                  localStorage.getItem(
+                                    `video_${data[index].videoId}_progress`
+                                  )
+                                )?.progressTime ||
+                                  data?.[index]?.progressTime) /
+                                  (JSON.parse(
+                                    localStorage.getItem(
+                                      `video_${data[index].videoId}_progress`
+                                    )
+                                  )?.duration || data[index].totalDuration)) *
+                                  100
+                              )}%`}
                             </span>
                           </div>
-                          
                         </div>
                       </div>
                     ))}
 
-                    <div className="sticky bottom-0 h-8 bg-linear-to-t from-[#141414] to-transparent pointer-events-none z-10 -mb-3"></div>
+                    {/* <div className="sticky bottom-0 h-8 bg-linear-to-t from-[#141414] to-transparent pointer-events-none z-10 -mb-3"></div> */}
                   </div>
                 </div>
               </div>
             </div>
-
             {/* 2. AI TUTOR CHAT (New Card) */}
             <div className="h-fit flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
               {/* Header */}
               <div
-                onClick={() => setIsOpen(!isOpen)}
-                className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
+                onClick={() => {
+                  setIsContentOpen(false);
+                  setIsChatOpen(true)
+                  setIsCardsOpen(false)
+                }}
+                className="px-5 py-3 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
                     <BookCopy
                       size={15}
-                      className={!isOpen ? "text-blue-500" : "text-zinc-500"}
+                      className={isChatOpen ? "text-blue-500" : "text-zinc-500"}
                     />
                     AI Tutor
                   </span>
                   <ChevronDown
                     size={14}
                     className={`text-zinc-500 transition-transform duration-500 ease-in-out ${
-                      !isOpen ? "rotate-180" : "rotate-0"
+                      !isChatOpen ? "rotate-180" : "rotate-0"
                     }`}
                   />
                 </div>
                 <div
                   className={`w-2 h-2 rounded-full ${
-                    !isOpen ? "bg-blue-600 animate-pulse" : "bg-zinc-700"
+                    isChatOpen ? "bg-blue-600 animate-pulse" : "bg-zinc-700"
                   }`}
                 />
               </div>
@@ -903,7 +1114,7 @@ const CoursePlayer = () => {
               {/* Body */}
               <div
                 className={`grid transition-[grid-template-rows] duration-500 ease-in-out ${
-                  !isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                  isChatOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
                 }`}
               >
                 <div className="overflow-hidden">
@@ -966,6 +1177,135 @@ const CoursePlayer = () => {
                             autoComplete="off"
                             name="user_text"
                             placeholder="Ask a question..."
+                            className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-10 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all placeholder:text-zinc-600"
+                          />
+                          <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-blue-500 rounded-lg text-zinc-400 hover:text-white transition-all">
+                            <Send size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* 3. NOTES ACCORDION */}
+            <div className="h-fit flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
+              {/* Header */}
+              <div
+                onClick={async () => {
+                  await getNotesData();
+                  setIsContentOpen(false);
+                  setIsChatOpen(false);
+                  setIsCardsOpen(true); // Toggle logic
+                }}
+                className="px-5 py-3 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                    <PencilRuler
+                      size={15}
+                      className={isCardsOpen ? "text-blue-500" : "text-zinc-500"}
+                    />
+                    Notes
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={`text-zinc-500 transition-transform duration-500 ease-in-out ${
+                      isCardsOpen ? "rotate-180" : "rotate-0"
+                    }`}
+                  />
+                </div>
+              </div>
+
+              {/* Body */}
+              <div
+                className={`grid transition-[grid-template-rows] duration-500 ease-in-out ${
+                  isCardsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                }`}
+              >
+                <div className="overflow-hidden">
+                  <div className="flex flex-col h-125 md:max-h-150 relative">
+                    {notesLoading ? <h1>Loading...</h1>: <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                      {currentVideoNotes?.length  ? <div>
+                      {currentVideoNotes.map((item,idx) => {
+                        return <div key={idx} onClick={() => {
+                          playerInstanceRef.current.currentTime = Number(item.timestamp);
+                          playerInstanceRef.current.play()
+                          console.log(playerInstanceRef.current.currentTime)
+                        }} className={`cursor-pointer group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#2563EB]/30 hover:bg-white/6 transition-all mb-2`}>
+                        
+                        {/* Note Top Row: Time & Actions */}
+                        <div className="flex justify-between items-center mb-2">
+                          <div className="flex items-center gap-2" >
+                            <span className="text-[10px] font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20">
+                              {`${Math.floor(item?.timestamp/60)}:${Math.floor((item?.timestamp/60 - Math.floor(item?.timestamp/60))*60)}`}
+                            </span>
+                            {/* <span className="text-[12px] font-bold text-zinc-500">
+                              Sample Note
+                            </span> */}
+                          </div>
+                          {/* Actions */}
+                          <div className="flex gap-2">
+                            <button className="text-zinc-500 hover:text-white cursor-pointer transition-colors">
+                              <Pencil size={12} />
+                            </button>
+                            <button className="text-zinc-500 hover:text-red-500 cursor-pointer transition-colors">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                        {/* Note Content */}
+                        <p className="text-sm text-zinc-300 leading-relaxed">
+                          {item?.notesContent}
+                        </p>
+                      </div>
+                      }).reverse()}
+                    </div>:''}
+                      {/* { sample note } */}
+                    <div className={`${currentVideoNotes?.length  ? 'hidden':'' } group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#2563EB]/30 hover:bg-white/6 transition-all`}>
+                      
+                      {/* Note Top Row: Time & Actions */}
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="flex items-center gap-2" >
+                          <span className="text-[10px] font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20">
+                            12:45
+                          </span>
+                          <span className="text-[12px] font-bold text-zinc-500">
+                            Sample Note
+                          </span>
+                        </div>
+                        {/* Actions */}
+                        <div className="flex gap-2">
+                          <button className="text-zinc-500 hover:text-white cursor-pointer transition-colors">
+                            <Pencil size={12} />
+                          </button>
+                          <button className="text-zinc-500 hover:text-red-500 cursor-pointer transition-colors">
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                      {/* Note Content */}
+                      <p className="text-sm text-zinc-300 leading-relaxed">
+                        Remember to use flex-direction: column when building the mobile layout for the navbar. The z-index needs to be higher than the hero section.
+                      </p>
+                    </div>
+                    </div>}
+                    {/* Scrollable Notes List */}
+                    
+                    
+
+                    {/* Input Area */}
+                    <form onSubmit={handleNotesSubmit}>
+                      <div className="p-3 border-t border-white/5 bg-[#0a0a0a]/50 backdrop-blur-md mt-auto">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            autoComplete="off"
+                            value={notesInput}
+                            onChange={handleNotesInput}
+                            name="user_note"
+                            placeholder="Add a note at current time..." // Changed placeholder to be relevant
                             className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-10 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all placeholder:text-zinc-600"
                           />
                           <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-blue-500 rounded-lg text-zinc-400 hover:text-white transition-all">

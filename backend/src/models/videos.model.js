@@ -44,7 +44,17 @@ const videoModel = new mongoose.Schema({
     completed: {
         type: Boolean,
         default: false
-    }
+    },
+    notes:[{
+        timestamp: {
+            type: Number,
+            default: 0
+        },
+        notesContent: {
+            type: String,
+            default: ""
+        }
+    }]
 
 },{timestamps: true});
 

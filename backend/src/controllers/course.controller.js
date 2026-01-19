@@ -253,6 +253,25 @@ export const updateVideoProgess = async (req,res) => {
         res.status(500).json({ error: "Server Error" });
     }
 }
+
+export const updateVideoNotes = async (req,res) => {
+    try {
+        const {newNote, videoId} = req.body;
+        const resp = await Video.findById(videoId);
+        resp.notes.push(newNote);
+        await resp.save();
+        // console.log({ 
+        //     message: "Note updated successfully", notes: resp.notes
+        // })
+        res.status(200).json({ 
+            message: "Note updated successfully", notes: resp.notes
+        });
+
+    } catch (error) {
+        console.error("Chat Error:", error);
+        res.status(500).json({ error: "Server Error" });
+    }
+}
 // courseData.data.items.map((vid,idx) => {
         //     const newVid =  new Video({
         //         playlist: newCourse._id,

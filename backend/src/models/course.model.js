@@ -32,7 +32,7 @@ const courseModel = new mongoose.Schema({
     lastVideoPlayed: {
         type: Number,
         default: 0
-    },
+    }
 
 },{timestamps: true});
 

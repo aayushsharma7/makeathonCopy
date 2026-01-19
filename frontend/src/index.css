@@ -126,6 +126,23 @@ body {
   }
 }
 
+/* Width */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+/* Track */
+::-webkit-scrollbar-track {
+  background: black;
+  border-radius: 4px;
+}
+/* Handle */
+::-webkit-scrollbar-thumb {
+  background: #27272a; /* Zinc-800 */
+  border-radius: 4px;
+  transition: background 0.3s ease;
+}
+
 .animate-grid {
   animation: grid-move 3s linear infinite;
 }

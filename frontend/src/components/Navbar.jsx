@@ -56,6 +56,7 @@ const Navbar = () => {
           withCredentials: true,
         }
       );
+      localStorage.clear()
       console.log(apiRes);
       if (apiRes.data.code === 200) {
         navigate("/login");
