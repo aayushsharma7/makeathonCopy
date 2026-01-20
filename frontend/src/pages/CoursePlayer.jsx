@@ -48,7 +48,7 @@ const CoursePlayer = () => {
   // const plyrRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [currVideo, setCurrVideo] = useState("");
-  const [notesLoading, setNotesLoading] = useState(true)
+  const [notesLoading, setNotesLoading] = useState(true);
 
   const [videoProgress, setVideoProgress] = useState({});
   const [courseProgress, setCourseProgress] = useState({});
@@ -58,7 +58,7 @@ const CoursePlayer = () => {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [completedVideos, setCompletedVideos] = useState([-1]);
   const [currentVideoNotes, setCurrentVideoNotes] = useState([]);
-  const [notesInput, setNotesInput] = useState("")
+  const [notesInput, setNotesInput] = useState("");
 
   const getData = async () => {
     try {
@@ -104,15 +104,14 @@ const CoursePlayer = () => {
           withCredentials: true,
         }
       );
-      
+
       setCurrentVideoNotes(notesApiData?.data);
-      
     } catch (error) {
       console.log(error);
     } finally {
       setNotesLoading(false);
     }
-  }
+  };
 
   const setActive = (index) => {
     setActiveIndex(index);
@@ -121,18 +120,21 @@ const CoursePlayer = () => {
 
   const deletNotes = async (noteId) => {
     try {
-      console.log(noteId)
+      console.log(noteId);
       // setCurrentVideoNotes((prev) => ([...prev].filter((e) => e.noteIndex !== noteIdx+1)));
-      const apiRes = await axios.post("http://localhost:3000/course/update/video/notes/delete",{
-        videoId: data?.[activeIndex]?._id,
-        noteId
-      },
-    { withCredentials: true })
-    await getNotesData();
+      const apiRes = await axios.post(
+        "http://localhost:3000/course/update/video/notes/delete",
+        {
+          videoId: data?.[activeIndex]?._id,
+          noteId,
+        },
+        { withCredentials: true }
+      );
+      await getNotesData();
     } catch (error) {
-      console.log(error)
+      console.log(error);
     }
-  }
+  };
 
   useEffect(() => {
     //auto scroll chatbox
@@ -153,19 +155,26 @@ const CoursePlayer = () => {
 
   const handleNotesSubmit = async (e) => {
     e.preventDefault();
-    
-    const apiRes = await axios.post( "http://localhost:3000/course/update/video/notes",{
-      videoId: data?.[activeIndex]?._id,
-      newNote: {
+
+    const apiRes = await axios.post(
+      "http://localhost:3000/course/update/video/notes",
+      {
         videoId: data?.[activeIndex]?._id,
-        timestamp: JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))?.progressTime || data?.[activeIndex]?.progressTime ||0,
-        notesContent: notesInput
-      }
-    },
-    { withCredentials: true })
+        newNote: {
+          videoId: data?.[activeIndex]?._id,
+          timestamp:
+            JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))
+              ?.progressTime ||
+            data?.[activeIndex]?.progressTime ||
+            0,
+          notesContent: notesInput,
+        },
+      },
+      { withCredentials: true }
+    );
 
     await getNotesData();
-    console.log(currentVideoNotes)
+    console.log(currentVideoNotes);
 
     // setCurrentVideoNotes((prev) => [...prev, {
     //   videoId: data?.[activeIndex]?._id,
@@ -174,10 +183,21 @@ const CoursePlayer = () => {
     //   notesContent: notesInput
     // }]);
     setNotesInput("");
-    
   };
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const newMessages = [
+      ...messages,
+      {
+        role: "user",
+        content: input,
+      },
+    ];
+    sessionStorage.setItem(
+      `messages_${data?.[activeIndex]?._id}`,
+      JSON.stringify(newMessages)
+    );
+
     if (!isChatLoading) {
       // const newMessages = [...messages, {
       // role: "user",
@@ -185,31 +205,19 @@ const CoursePlayer = () => {
       // }] //spread operator to it doesnt create reference to original messages array and ui updates auto (dont use this as state isnt updated synchronously)
 
       // Use the functional update form with the previous state --- impppp
-      setMessages((prev) => [
-        ...prev, //use of spread operator in this
-        {
-          role: "user",
-          content: input,
-        },
-      ]);
+      setMessages(newMessages);
       setInput("");
 
       setIsChatLoading(true);
 
       try {
-        const start = currentTime > 25 ? Math.floor(currentTime) - 25 : 0;
-        const end = Math.floor(currentTime) + 25;
+        const start = currentTime > 60 ? Math.floor(currentTime) - 60 : 0;
+        const end = Math.floor(currentTime) + 60;
 
         const resp = await axios.post(
           "http://localhost:3000/course/ai",
           {
-            messages: [
-              ...messages,
-              {
-                role: "user",
-                content: input,
-              },
-            ].slice(-6),
+            messages: newMessages.slice(-6),
             videoId: data?.[activeIndex]?.videoId,
             start,
             end,
@@ -220,43 +228,57 @@ const CoursePlayer = () => {
           },
           { withCredentials: true }
         );
-
-        setMessages((prev) => [
-          ...prev,
+        const newerMessages = [
+          ...newMessages,
           {
             role: "system",
             content: resp.data,
           },
-        ]);
+        ];
+        setMessages(newerMessages);
+        sessionStorage.setItem(
+          `messages_${data?.[activeIndex]?._id}`,
+          JSON.stringify(newerMessages)
+        );
       } catch (error) {
         console.error(error);
-        setMessages((prev) => [
-          ...prev,
+        const newerMessages = [
+          ...newMessages,
           {
             role: "system",
             content: "Sorry, I'm having trouble connecting right now.",
           },
-        ]);
+        ];
+        setMessages(newerMessages);
+        sessionStorage.setItem(
+          `messages_${data?.[activeIndex]?._id}`,
+          JSON.stringify(newerMessages)
+        );
       } finally {
         setIsChatLoading(false);
       }
     }
   };
 
-
-
-
   // console.log(Math.floor((currentTime/currDuration)*100));
 
-  useEffect(() => {
-    setMessages([
-      {
-        role: "system",
-        content:
-          "Hello! I'm your AI learning assistant. I'm watching this video with you. Ask me anything about the content!",
-      },
-    ]);
-  }, [activeIndex]);
+  // useEffect(() => {
+  //   if (
+  //     JSON.parse(localStorage.getItem(`messages_${data?.[activeIndex]?._id}`))
+  //   ) {
+  //     setMessages(
+  //       JSON.parse(localStorage.getItem(`messages_${data?.[activeIndex]?._id}`))
+  //     );
+  //   } else {
+  //     setMessages([
+  //       {
+  //         role: "system",
+  //         content:
+  //           "ho",
+  //       },
+  //     ]);
+  //   }
+  // }, [activeIndex]);
 
   const currentVideoId = data?.[activeIndex]?.videoId;
 
@@ -279,8 +301,6 @@ const CoursePlayer = () => {
       },
       ratio: "16:9",
     });
-
-   
 
     // plyrRef.current = player;
 
@@ -802,12 +822,15 @@ const CoursePlayer = () => {
         {/* HEADER */}
         <header className="flex items-center justify-between mb-4 shrink-0">
           <div className="flex items-center justify-center gap-4">
-            <Link
-              to="/courses"
-              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
-            >
-              <ChevronLeft className="w-5 h-5 text-zinc-400 group-hover:text-white" />
-            </Link>
+            <div>
+              <Link
+                to="/courses"
+                className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
+              >
+                <ChevronLeft className="w-5 h-5 text-zinc-400 group-hover:text-white" />
+              </Link>
+            </div>
+
             <div>
               <h1 className="text-xl font-bold tracking-tight text-white/90">
                 {name}
@@ -861,8 +884,8 @@ const CoursePlayer = () => {
               <div
                 onClick={() => {
                   setIsContentOpen(true);
-                  setIsChatOpen(false)
-                  setIsCardsOpen(false)
+                  setIsChatOpen(false);
+                  setIsCardsOpen(false);
                 }}
                 className="px-5 py-3 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
               >
@@ -914,14 +937,14 @@ const CoursePlayer = () => {
                 ${
                   activeIndex === index
                     ? ` ${
-                          (JSON.parse(
-                            localStorage.getItem(
-                              `video_${data[index].videoId}_progress`
-                            )
-                          )?.completed || data?.[index]?.completed) === true
-                            ? "bg-green-500/5 border-green-500/20"
-                            : "bg-[#2563EB]/5 border-[#2563EB]/20"
-                        }`
+                        (JSON.parse(
+                          localStorage.getItem(
+                            `video_${data[index].videoId}_progress`
+                          )
+                        )?.completed || data?.[index]?.completed) === true
+                          ? "bg-green-500/5 border-green-500/20"
+                          : "bg-[#2563EB]/5 border-[#2563EB]/20"
+                      }`
                     : "bg-transparent border-transparent hover:bg-white/5"
                 }
               `}
@@ -1103,13 +1126,38 @@ const CoursePlayer = () => {
               </div>
             </div>
             {/* 2. AI TUTOR CHAT (New Card) */}
-            <div className="h-fit flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
+            <div
+              onClick={() => {
+                if (
+                  JSON.parse(
+                    sessionStorage.getItem(`messages_${data?.[activeIndex]?._id}`)
+                  )
+                ) {
+                  setMessages(
+                    JSON.parse(
+                      sessionStorage.getItem(
+                        `messages_${data?.[activeIndex]?._id}`
+                      )
+                    )
+                  );
+                } else {
+                  setMessages([
+                    {
+                      role: "system",
+                      content:
+                        "Hello! I'm your AI learning assistant. I'm watching this video with you. Ask me anything about the content!",
+                    },
+                  ]);
+                }
+              }}
+              className="h-fit  flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300"
+            >
               {/* Header */}
               <div
                 onClick={() => {
                   setIsContentOpen(false);
-                  setIsChatOpen(true)
-                  setIsCardsOpen(false)
+                  setIsChatOpen(true);
+                  setIsCardsOpen(false);
                 }}
                 className="px-5 py-3 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
               >
@@ -1220,7 +1268,7 @@ const CoursePlayer = () => {
                 onClick={() => {
                   setIsContentOpen(false);
                   setIsChatOpen(false);
-                  setIsCardsOpen(true); 
+                  setIsCardsOpen(true);
                   setNotesLoading(true);
                   getNotesData();
                 }}
@@ -1230,7 +1278,9 @@ const CoursePlayer = () => {
                   <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
                     <PencilRuler
                       size={15}
-                      className={isCardsOpen ? "text-blue-500" : "text-zinc-500"}
+                      className={
+                        isCardsOpen ? "text-blue-500" : "text-zinc-500"
+                      }
                     />
                     Notes
                   </span>
@@ -1251,76 +1301,113 @@ const CoursePlayer = () => {
               >
                 <div className="overflow-hidden">
                   <div className="flex flex-col h-125 md:max-h-150 relative">
-                    {notesLoading ? <h1>Loading...</h1>: <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                      {currentVideoNotes?.length  ? <div>
-                      {currentVideoNotes.map((item,idx) => {
-                        return <div key={idx} className={`group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#2563EB]/30 hover:bg-white/6 transition-all mb-2`}>
-                        
-                        {/* Note Top Row: Time & Actions */}
-                        <div className="flex justify-between items-center mb-2">
-                          <div className="flex items-center gap-2" >
-                            <span onClick={() => {
-                          playerInstanceRef.current.currentTime = Number(item.timestamp);
-                          playerInstanceRef.current.play()
-                          console.log(playerInstanceRef.current.currentTime)
-                        }} className="text-[10px] cursor-pointer font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20">
-                              {`${Math.floor(item?.timestamp/60)}:${Math.floor((item?.timestamp/60 - Math.floor(item?.timestamp/60))*60)}`}
-                            </span>
-                            {/* <span className="text-[12px] font-bold text-zinc-500">
+                    {notesLoading ? (
+                      <div className="flex-1 overflow-y-auto p-4 space-y-3 items-center justify-center custom-scrollbar">
+                        <h1 className="text-center">Loading...</h1>
+                      </div>
+                    ) : (
+                      <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                        {currentVideoNotes?.length ? (
+                          <div>
+                            {currentVideoNotes
+                              .map((item, idx) => {
+                                return (
+                                  <div
+                                    key={idx}
+                                    className={`group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#2563EB]/30 hover:bg-white/6 transition-all mb-2`}
+                                  >
+                                    {/* Note Top Row: Time & Actions */}
+                                    <div className="flex justify-between items-center mb-2">
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          onClick={() => {
+                                            playerInstanceRef.current.currentTime =
+                                              Number(item.timestamp);
+                                            playerInstanceRef.current.play();
+                                            console.log(
+                                              playerInstanceRef.current
+                                                .currentTime
+                                            );
+                                          }}
+                                          className="text-[10px] cursor-pointer font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20"
+                                        >
+                                          {`${Math.floor(
+                                            item?.timestamp / 60
+                                          )}:${Math.floor(
+                                            (item?.timestamp / 60 -
+                                              Math.floor(
+                                                item?.timestamp / 60
+                                              )) *
+                                              60
+                                          )}`}
+                                        </span>
+                                        {/* <span className="text-[12px] font-bold text-zinc-500">
                               Sample Note
                             </span> */}
+                                      </div>
+                                      {/* Actions */}
+                                      <div className="flex gap-2">
+                                        <button className="text-zinc-500 hover:text-white cursor-pointer transition-colors">
+                                          <Pencil size={12} />
+                                        </button>
+                                        <button
+                                          onClick={async () => {
+                                            await deletNotes(item._id);
+                                          }}
+                                          className="text-zinc-500 hover:text-red-500 cursor-pointer transition-colors"
+                                        >
+                                          <Trash2 size={12} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                    {/* Note Content */}
+                                    <p className="text-sm text-zinc-300 leading-relaxed">
+                                      {item?.notesContent}
+                                    </p>
+                                  </div>
+                                );
+                              })
+                              .reverse()}
                           </div>
-                          {/* Actions */}
-                          <div className="flex gap-2">
-                            <button className="text-zinc-500 hover:text-white cursor-pointer transition-colors">
-                              <Pencil size={12} />
-                            </button>
-                            <button onClick={async () => {
-                              await deletNotes(item._id)
-                            }} className="text-zinc-500 hover:text-red-500 cursor-pointer transition-colors">
-                              <Trash2 size={12} />
-                            </button>
+                        ) : (
+                          ""
+                        )}
+                        {/* { sample note } */}
+                        <div
+                          className={`${
+                            currentVideoNotes?.length ? "hidden" : ""
+                          } group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#2563EB]/30 hover:bg-white/6 transition-all`}
+                        >
+                          {/* Note Top Row: Time & Actions */}
+                          <div className="flex justify-between items-center mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20">
+                                12:45
+                              </span>
+                              <span className="text-[12px] font-bold text-zinc-500">
+                                Sample Note
+                              </span>
+                            </div>
+                            {/* Actions */}
+                            <div className="flex gap-2">
+                              <button className="text-zinc-500 hover:text-white cursor-pointer transition-colors">
+                                <Pencil size={12} />
+                              </button>
+                              <button className="text-zinc-500 hover:text-red-500 cursor-pointer transition-colors">
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                        {/* Note Content */}
-                        <p className="text-sm text-zinc-300 leading-relaxed">
-                          {item?.notesContent}
-                        </p>
-                      </div>
-                      }).reverse()}
-                    </div>:''}
-                      {/* { sample note } */}
-                    <div className={`${currentVideoNotes?.length  ? 'hidden':'' } group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#2563EB]/30 hover:bg-white/6 transition-all`}>
-                      
-                      {/* Note Top Row: Time & Actions */}
-                      <div className="flex justify-between items-center mb-2">
-                        <div className="flex items-center gap-2" >
-                          <span className="text-[10px] font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20">
-                            12:45
-                          </span>
-                          <span className="text-[12px] font-bold text-zinc-500">
-                            Sample Note
-                          </span>
-                        </div>
-                        {/* Actions */}
-                        <div className="flex gap-2">
-                          <button className="text-zinc-500 hover:text-white cursor-pointer transition-colors">
-                            <Pencil size={12} />
-                          </button>
-                          <button className="text-zinc-500 hover:text-red-500 cursor-pointer transition-colors">
-                            <Trash2 size={12} />
-                          </button>
+                          {/* Note Content */}
+                          <p className="text-sm text-zinc-300 leading-relaxed">
+                            Remember to use flex-direction: column when building
+                            the mobile layout for the navbar. The z-index needs
+                            to be higher than the hero section.
+                          </p>
                         </div>
                       </div>
-                      {/* Note Content */}
-                      <p className="text-sm text-zinc-300 leading-relaxed">
-                        Remember to use flex-direction: column when building the mobile layout for the navbar. The z-index needs to be higher than the hero section.
-                      </p>
-                    </div>
-                    </div>}
+                    )}
                     {/* Scrollable Notes List */}
-                    
-                    
 
                     {/* Input Area */}
                     <form onSubmit={handleNotesSubmit}>
