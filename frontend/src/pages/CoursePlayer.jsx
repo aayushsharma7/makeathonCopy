@@ -69,7 +69,7 @@ const CoursePlayer = () => {
         }
       );
       const courseApiData = await axios.get(
-        `http://localhost:3000/course/${id.split("}")[0]}`,
+        `http://localhost:3000/course/getCourse/${id.split("}")[0]}`,
         {
           withCredentials: true,
         }
@@ -98,13 +98,14 @@ const CoursePlayer = () => {
 
   const getNotesData = async () => {
     try {
-      const apiData = await axios.get(
-        `http://localhost:3000/course/data/${id.split("}")[0]}`,
+      const notesApiData = await axios.get(
+        `http://localhost:3000/course/notes/${data?.[activeIndex]?._id}`,
         {
           withCredentials: true,
         }
       );
-      setCurrentVideoNotes(apiData?.data?.[activeIndex]?.notes);
+      
+      setCurrentVideoNotes(notesApiData?.data);
       
     } catch (error) {
       console.log(error);
@@ -117,6 +118,21 @@ const CoursePlayer = () => {
     setActiveIndex(index);
     // console.log(activeIndex);
   };
+
+  const deletNotes = async (noteId) => {
+    try {
+      console.log(noteId)
+      // setCurrentVideoNotes((prev) => ([...prev].filter((e) => e.noteIndex !== noteIdx+1)));
+      const apiRes = await axios.post("http://localhost:3000/course/update/video/notes/delete",{
+        videoId: data?.[activeIndex]?._id,
+        noteId
+      },
+    { withCredentials: true })
+    await getNotesData();
+    } catch (error) {
+      console.log(error)
+    }
+  }
 
   useEffect(() => {
     //auto scroll chatbox
@@ -137,18 +153,26 @@ const CoursePlayer = () => {
 
   const handleNotesSubmit = async (e) => {
     e.preventDefault();
-    setCurrentVideoNotes((prev) => [...prev, {
-      timestamp: Math.floor(playerInstanceRef.current.currentTime) || JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))?.progressTime || data?.[activeIndex]?.progressTime || 0,
-      notesContent: notesInput
-    }]);
+    
     const apiRes = await axios.post( "http://localhost:3000/course/update/video/notes",{
       videoId: data?.[activeIndex]?._id,
       newNote: {
+        videoId: data?.[activeIndex]?._id,
         timestamp: JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))?.progressTime || data?.[activeIndex]?.progressTime ||0,
         notesContent: notesInput
       }
     },
     { withCredentials: true })
+
+    await getNotesData();
+    console.log(currentVideoNotes)
+
+    // setCurrentVideoNotes((prev) => [...prev, {
+    //   videoId: data?.[activeIndex]?._id,
+    //   noteIndex: currentVideoNotes.length + 1 || 1,
+    //   timestamp: Math.floor(playerInstanceRef.current.currentTime) || JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))?.progressTime || data?.[activeIndex]?.progressTime || 0,
+    //   notesContent: notesInput
+    // }]);
     setNotesInput("");
     
   };
@@ -1193,11 +1217,12 @@ const CoursePlayer = () => {
             <div className="h-fit flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
               {/* Header */}
               <div
-                onClick={async () => {
-                  await getNotesData();
+                onClick={() => {
                   setIsContentOpen(false);
                   setIsChatOpen(false);
-                  setIsCardsOpen(true); // Toggle logic
+                  setIsCardsOpen(true); 
+                  setNotesLoading(true);
+                  getNotesData();
                 }}
                 className="px-5 py-3 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
               >
@@ -1229,16 +1254,16 @@ const CoursePlayer = () => {
                     {notesLoading ? <h1>Loading...</h1>: <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
                       {currentVideoNotes?.length  ? <div>
                       {currentVideoNotes.map((item,idx) => {
-                        return <div key={idx} onClick={() => {
-                          playerInstanceRef.current.currentTime = Number(item.timestamp);
-                          playerInstanceRef.current.play()
-                          console.log(playerInstanceRef.current.currentTime)
-                        }} className={`cursor-pointer group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#2563EB]/30 hover:bg-white/6 transition-all mb-2`}>
+                        return <div key={idx} className={`group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#2563EB]/30 hover:bg-white/6 transition-all mb-2`}>
                         
                         {/* Note Top Row: Time & Actions */}
                         <div className="flex justify-between items-center mb-2">
                           <div className="flex items-center gap-2" >
-                            <span className="text-[10px] font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20">
+                            <span onClick={() => {
+                          playerInstanceRef.current.currentTime = Number(item.timestamp);
+                          playerInstanceRef.current.play()
+                          console.log(playerInstanceRef.current.currentTime)
+                        }} className="text-[10px] cursor-pointer font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20">
                               {`${Math.floor(item?.timestamp/60)}:${Math.floor((item?.timestamp/60 - Math.floor(item?.timestamp/60))*60)}`}
                             </span>
                             {/* <span className="text-[12px] font-bold text-zinc-500">
@@ -1250,7 +1275,9 @@ const CoursePlayer = () => {
                             <button className="text-zinc-500 hover:text-white cursor-pointer transition-colors">
                               <Pencil size={12} />
                             </button>
-                            <button className="text-zinc-500 hover:text-red-500 cursor-pointer transition-colors">
+                            <button onClick={async () => {
+                              await deletNotes(item._id)
+                            }} className="text-zinc-500 hover:text-red-500 cursor-pointer transition-colors">
                               <Trash2 size={12} />
                             </button>
                           </div>

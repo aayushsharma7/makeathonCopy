@@ -6,6 +6,7 @@ import {GoogleGenAI} from "@google/genai"
 import { groq } from '@ai-sdk/groq';
 import { generateText } from 'ai';
 import { fetchTranscript } from 'youtube-transcript-plus';
+import { Notes } from "../models/note.model.js";
 
 
 
@@ -257,8 +258,10 @@ export const updateVideoProgess = async (req,res) => {
 export const updateVideoNotes = async (req,res) => {
     try {
         const {newNote, videoId} = req.body;
+        const createdNewNote = new Notes(newNote);
+        createdNewNote.save();
         const resp = await Video.findById(videoId);
-        resp.notes.push(newNote);
+        resp.notes.push(createdNewNote._id);
         await resp.save();
         // console.log({ 
         //     message: "Note updated successfully", notes: resp.notes
@@ -267,6 +270,49 @@ export const updateVideoNotes = async (req,res) => {
             message: "Note updated successfully", notes: resp.notes
         });
 
+    } catch (error) {
+        console.error("Chat Error:", error);
+        res.status(500).json({ error: "Server Error" });
+    }
+}
+export const getVideoNotes = async (req,res) => {
+    try {
+        const notes = await Notes.find({
+            videoId: req.params.id
+        })
+        if(notes.length===0){
+            res.status(200).send([{
+                videoId: req.params.id,
+                timestamp: 200,
+                notesContent: "Sample Note"
+            }])
+        }
+        else{
+            res.status(200).send(notes);
+            // console.log("Notes: ",notes);
+        }
+
+    } catch (error) {
+        console.error("Chat Error:", error);
+        res.status(500).json({ error: "Server Error" });
+    }
+
+}
+
+export const deleteVideoNotes = async (req,res) => {
+    try {
+        const {noteId, videoId} = req.body;
+        const resp = await Video.findById(videoId);
+        const newArr = resp.notes.filter((e) => (e !== noteId));
+        const resp2 = await Notes.findByIdAndDelete(noteId);
+        resp.notes = newArr;
+        await resp.save();
+        // console.log({ 
+        //     message: "Note deleted successfully", notes: resp.notes
+        // })
+        res.status(200).json({ 
+            message: "Note deleted successfully", notes: resp.notes
+        });
     } catch (error) {
         console.error("Chat Error:", error);
         res.status(500).json({ error: "Server Error" });
