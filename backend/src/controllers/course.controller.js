@@ -20,15 +20,52 @@ export const courseController = async (req,res) => {
         })
 
         if(checkArr.length===0){
-
             const courseData = await axios.get(`https://www.googleapis.com/youtube/v3/playlistItems?key=${process.env.YT_API_KEY}&part=snippet&playlistId=${playlistID}&maxResults=50`);
+            while(courseData?.data?.nextPageToken){
+                let moreCourseData = await axios.get(`https://www.googleapis.com/youtube/v3/playlistItems?key=${process.env.YT_API_KEY}&part=snippet&playlistId=${playlistID}&maxResults=50&pageToken=${courseData.data.nextPageToken}`);
+                moreCourseData.data.items.map((vid,idx) => {
+                    courseData.data.items.push(vid);
+                });
+                courseData.data.nextPageToken = moreCourseData?.data?.nextPageToken;
+            };
+            
             const ytVideoIds = courseData.data.items.map((vid,idx) => {
                 return vid.snippet.resourceId.videoId
             })
 
-            const ytString = ytVideoIds.join();
+            
+            let chunkedYtVideos = [];
+            let copy = [];
+            for (let i = 0; i < ytVideoIds.length; i++) {
+                if(copy.length === 50){
+                    chunkedYtVideos.push(copy);
+                    copy=[];
+                    copy.push(ytVideoIds[i]);
+                }
+                else{
+                    copy.push(ytVideoIds[i]);
+                }
+            }
+            if (copy.length > 0) {
+                chunkedYtVideos.push(copy);
+            }
+            
+            const videoData = await axios.get(`https://www.googleapis.com/youtube/v3/videos?key=${process.env.YT_API_KEY}&part=contentDetails,statistics,status&id=${chunkedYtVideos[0].join()}&maxResults=50`);
+            for(let i=1; i<chunkedYtVideos.length;i++){
+                const ytString = chunkedYtVideos[i].join();
+                const newVideoData = await axios.get(`https://www.googleapis.com/youtube/v3/videos?key=${process.env.YT_API_KEY}&part=contentDetails,statistics,status&id=${ytString}&maxResults=50`);
+                newVideoData.data.items.map((vid,idx) => {
+                    videoData.data.items.push(vid);
+                });
+            };
             // console.log(ytString)
-            const videoData = await axios.get(`https://www.googleapis.com/youtube/v3/videos?key=${process.env.YT_API_KEY}&part=contentDetails,statistics,status&id=${ytString}&maxResults=50`);
+            // while(courseData?.data?.nextPageToken){
+            //     let moreCourseData = await axios.get(`https://www.googleapis.com/youtube/v3/playlistItems?key=${process.env.YT_API_KEY}&part=snippet&playlistId=${playlistID}&maxResults=50&pageToken=${courseData.data.nextPageToken}`);
+            //     moreCourseData.data.items.map((vid,idx) => {
+            //         courseData.data.items.push(vid);
+            //     });
+            //     courseData.data.nextPageToken = moreCourseData?.data?.nextPageToken;
+            // };
             const newCourse = new Course({
                 title: req.body.name,
                 playlistId: playlistID,

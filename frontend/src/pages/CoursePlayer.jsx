@@ -83,7 +83,8 @@ const CoursePlayer = () => {
       // console.log(localStorage.getItem(`last_video_played_${data?.[activeIndex]?.playlist}`))
       setActiveIndex(parseFloat(currIndex));
       // console.log(apiData.data);
-      setData(apiData.data);
+      const filteredData = apiData.data.filter((e) => (e.duration !== 'PT0S'))
+      setData(filteredData);
       setCourseData(courseApiData.data);
     } catch (error) {
       console.log(error);
@@ -822,7 +823,9 @@ const CoursePlayer = () => {
         {/* HEADER */}
         <header className="flex items-center justify-between mb-4 shrink-0">
           <div className="flex items-center justify-center gap-4">
-            <div>
+            <div onClick={() => {
+              localStorage.clear();
+            }}>
               <Link
                 to="/courses"
                 className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
