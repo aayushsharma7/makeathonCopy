@@ -7,6 +7,8 @@ import { groq } from '@ai-sdk/groq';
 import { generateText } from 'ai';
 import { fetchTranscript } from 'youtube-transcript-plus';
 import { Notes } from "../models/note.model.js";
+import { Transcript } from "../models/transcript.model.js";
+import { Problems } from "../models/problems.model.js";
 
 
 
@@ -179,9 +181,22 @@ export const getCourseData = async(req,res) => {
 
 export const getAi = async (req,res) => {
     try {
-        const { messages, videoId, start, end, currentQues } = req.body;
-        const rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoId}`);
-
+        const { messages, videoId, start, end, currentQues, title } = req.body;
+        const checkIfExists = await Transcript.find({
+            videoId
+        });
+        let rawTranscript;
+        if(checkIfExists.length===0){
+            rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoId}`);
+            const newAddTs = new Transcript({
+                videoId,
+                transcript: rawTranscript
+            });
+            await newAddTs.save();
+        }
+        else{
+            rawTranscript = checkIfExists[0].transcript;
+        }
         const processedTranscript = [];
 
         const transcript = rawTranscript.map((data) => {
@@ -195,7 +210,7 @@ export const getAi = async (req,res) => {
         const newTranscript = processedTranscript.map((data) => {
             const timestamp = (data.offset);
             return `[${timestamp}s] ${data.text}`
-        }).join('\n')
+        }).join('\n');
 
         // res.send(newTranscript);
 
@@ -208,16 +223,17 @@ export const getAi = async (req,res) => {
         model: groq('llama-3.3-70b-versatile'),
         messages: messages,
         system: `
-        You are a professional AI Tutor assisting a learner while they watch a video.
-        You are given the video transcript as plain text.
+        You are a professional AI Tutor assisting a learner while they watch a video titled ${title}.
+        You are given the video transcript as plain text and also given the video title.
         Rules:
         • Identify the user’s intent and focus on helping them understand their question clearly.
-        • Use the transcript as the primary reference to stay aligned with the video’s topic, but do not repeat or restate it verbatim unnecessarily unless needed.
+        • Use the transcript as the primary reference to stay aligned with the video’s topic, but do not repeat or restate it verbatim unnecessarily unless needed.  
         • If a concept, tool, or technology is mentioned in the video (for example HTML, Node.js, React, etc.), you may explain it briefly at a foundational level even if it is not fully explained in the transcript.
         • You may add minimal additional information beyond the transcript if it directly helps clarify the user’s question and remains consistent with the topic being taught.
         • Do not introduce advanced details, unrelated topics, or deep external knowledge.
-        • If the question is unrelated to the video’s topic, respond exactly:
+        • If the question is unrelated to the video’s topic and If the transcript does'nt provide the context for user's questions refer to the video title , if still ques is not relevant respond exactly:
         "Sorry I don't have relevant information about this."
+        • If users sends a greeting/"hi" etc.. respond with a greeting and then answer the ques (if any asked, else just respond with a greeting)
         Response requirements:
         • One short paragraph only
         • Extremely concise, clear, and professional
@@ -231,6 +247,173 @@ export const getAi = async (req,res) => {
         `,
         });
         res.status(200).send(result.text);
+
+    } catch (error) {
+        console.error("Chat Error:", error);
+        res.status(500).json({ error: "Server Error" });
+    }
+
+    // const response = await generateText({
+    // model: groq('llama-3.1-8b-instant'),
+    // prompt: `heres the transcripts : ${transcript}, now can u answer ques based ion this video? 
+    // Ques : I dont understand what he taught at 475s `,
+    // });
+
+    // res.send(response.text);
+
+    // gemini
+    // const ai = new GoogleGenAI({
+    //     apiKey: process.env.GEMINI_API_KEY
+    // });
+    // const response = await ai.models.generateContent({
+    //     model: "gemini-2.5-flash",
+    //     contents: "Here is a video link: https://www.youtube.com/watch?v=IBrmsyy9R94&pp=ygUYbGF6eSBsb2FkaW5nIGluIHJlYWN0IGpz,  Now can you see/learn/know what is inside the videoa and answer questions based on the video if asked? ",
+    // });
+    // res.send(response.text);
+}
+export const getRecommendedProblems = async (req,res) => {
+    try {
+        const { videoId, title, description} = req.body;
+        const checkIfExists = await Problems.find({
+            videoId
+        });
+        // let rawTranscript;
+        if(checkIfExists.length !== 0){
+            const data = checkIfExists[0];
+            res.status(200).json(data);
+        }
+        else{
+            const result = await generateText({
+            model: groq('groq/compound'),
+            temperature: 0,
+            messages: [
+                { role: "system", content: `
+            You are an automated curriculum engine acting as a strict JSON API endpoint. 
+            Your goal is to map educational video content to relevant competitive programming/ normal coding problems (DSA).
+            INPUT CONTEXT:
+            You will be provided with a Video Title and Description.
+            YOUR PROTOCOL:
+            1. ANALYZE RELEVANCE (The Gatekeeper):
+            - Determine if the content covers specific **Data Structures, Algorithms, or Computational Logic or Basic Normal Coding i.e they cover algorithmic concepts (Loops, Patterns, Arrays)** (e.g., Arrays, Recursion, DP, Graphs, Bit Manipulation).
+            - STRICT EXCLUSION: If the video is about Web Development (React, CSS), System Design, DevOps, or General Tech News, it is NOT relevant.
+            - SOURCE OF TRUTH (CRITICAL):
+            - **Focus STRICTLY** on the educational content taught in the video.
+            - **Look for TIMESTAMPS/CHAPTERS** in the Description (e.g., "05:30 Binary Search", "10:00 Recursion") as the primary signal for what is taught.
+            - **IGNORE** promotional text, social media links, "About me" sections, or generic channel descriptions. 
+            - If a topic is mentioned in the description but NOT covered in the transcript/chapters, DO NOT include it.
+
+            - EXCEPTION: "Complete Courses" (e.g., "Java Full Course") are relevant IF they cover algorithmic concepts (Loops, Patterns, Arrays).
+            - Provide Questions for python/sql/ai-ml related content also using kaggle etc.
+            2. TOPIC SEGMENTATION:
+            - If the video covers multiple distinct topics (e.g. "Arrays and Linked Lists"), create SEPARATE objects for each topic in the output array.
+            - Do not lump them into one topic like "Arrays & Linked Lists".
+            - All problems related to the same topic should come under one object only, for example if topic is selection sort then the object having the opic selection sort should have all problems related to it rather than having 2 objects having the same topic.
+            3. EXTRACTION:
+            - For each identified topic, find **3 distinct practice problems** from LeetCode or GeeksForGeeks (GFG) or Codechef or Codeforces or HackerRank or Kaggle etc......
+            - Ensure URLs are valid and canonical.
+            4. OUTPUT FORMAT (Strict JSON):
+            - You must return a root object containing a list named "data" and a boolean "relevant" which should be true if video is relevant and you have found problems else it should be false.
+            - NO markdown formatting (no \`\`\`json).
+            - NO conversational text.
+            - STRICTLY FOLLOW THE JSON SCHEMA
+            TARGET JSON SCHEMA:
+            {
+            "relevant": true,
+            "data": [
+                {
+                
+                "topic": "Name of Specific Topic (e.g. Binary Search)",
+                "problems": [
+                    {
+                    "title": "Problem Title",
+                    "platform": "LeetCode" | "GeeksForGeeks",
+                    "link": "Valid URL",
+                    "difficulty": "Easy" | "Medium" | "Hard",
+                    "tags": ["Tag1", "Tag2"]
+                    }
+                ]
+                }
+            ]
+            }
+            EDGE CASE - NOT RELEVANT:
+            If the video is not about DSA/Algorithms, return exactly:
+            {
+            "relevant": false,
+            "data": [
+                {
+                "topic": null,
+                "problems": []
+                }
+            ]
+            }
+
+            --AGAIN DO NOT SEND ANYTHING ELSE EXCEPT THE JSON SCHEMA I TOLD YOU TO SEND
+            Here are the title and descriptions of the video for you to reference to-
+            videoTitle: ${title},
+            videoDescriptions: ${description},
+            `},
+                { role: "user", content: "generate recommended problems" }
+            ],
+            response_format: { type: "json_object" }
+            });
+
+            // this result can still contain text so adding (so it doesnt fail) a manual parser - 
+            const cleanAndParseJSON = (text) => {
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    const jsonMatch = text.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        try {
+                            return JSON.parse(jsonMatch[0]);
+                        } catch (innerErr) {
+                            console.error("Regex extraction failed:", innerErr);
+                        }
+                    }
+                    return { 
+                        relevant: false, 
+                        data: [] 
+                    };
+                }
+            };
+
+            const checkedData = cleanAndParseJSON(result.text);
+            const newProblems = new Problems({
+                videoId,
+                relevant: checkedData.relevant,
+                problemsList: checkedData.data
+            });
+            await newProblems.save();
+            res.status(200).json(newProblems);
+        }
+        //     rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoId}`);
+        //     const newAddTs = new Transcript({
+        //         videoId,
+        //         transcript: rawTranscript
+        //     });
+        //     await newAddTs.save();
+        // }
+        // else{
+        //     rawTranscript = checkIfExists[0].transcript;
+        // }
+
+        // const transcript = rawTranscript.map((data) => {
+        //     const timestamp = (data.offset);
+        //     return `[${timestamp}s] ${data.text}`
+        // }).join('\n');
+
+        
+
+        // res.send(newTranscript);
+
+        // const userQuery = messages[messages.length - 1].content;
+
+        // const answer = await askWithContext(transcript, userQuery, videoId);
+        
+        // res.status(200).send((result.text));
+       
+        // res.send(transcript);
+        
 
     } catch (error) {
         console.error("Chat Error:", error);

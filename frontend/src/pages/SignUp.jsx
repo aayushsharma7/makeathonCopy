@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from "react-router-dom";
 import { User, Mail, Lock, ArrowRight, Github, Chrome } from "lucide-react";
 import axios from 'axios';
@@ -11,7 +11,27 @@ const SignUp = () => {
     const [password, setPassword] = useState("")
     const [resp, setResp] = useState("")
 
-    const navigate = useNavigate()
+    const navigate = useNavigate();
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const checkAuth = async () => {
+      try {
+        const responsePost = await axios.get(`http://localhost:3000/auth/check`, {
+          withCredentials: true,
+        });
+        if (responsePost.data.code === 200) {
+          setIsLoggedIn(true);
+          navigate("/courses");
+        } else {
+          setIsLoggedIn(false);
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    };
+
+    useEffect(() => {
+      checkAuth();
+    }, []);
 
     const nameHandle = (e) => {
         setName(e.target.value)
@@ -22,6 +42,7 @@ const SignUp = () => {
     const passHandle = (e) => {
         setPassword(e.target.value)
     }
+
  
     const handleSubmit = async (e) => {
         e.preventDefault();
