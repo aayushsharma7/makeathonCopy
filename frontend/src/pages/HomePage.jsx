@@ -318,7 +318,7 @@ const HomePage = () => {
         </div>
         <div className={`${lastCoursePlayed === "none" ? 'hidden':''}`}>
           <div className="relative">
-            <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight leading-[0.9] mb-6 ml-1">
+            <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight leading-[0.9] mb-6 ml-1 -mt-1">
               Continue Watching
             </h1>
           </div>
@@ -341,7 +341,7 @@ const HomePage = () => {
 
                 {/* Play Button Overlay */}
                 <div className="absolute inset-0 z-20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                  <div className="w-14 h-14 bg-white rounded-lg border-2 border-black  flex items-center justify-center transform scale-50 group-hover:scale-100 transition-transform duration-300">
+                  <div className="w-14 h-14 bg-zinc-200 rounded-md border-2 border-black  flex items-center justify-center transform scale-50 group-hover:scale-100 transition-transform duration-300">
                     <button
                       onClick={() => {
                         goToCourse(course._id, course.title);
@@ -400,7 +400,29 @@ const HomePage = () => {
                 </div> */}
 
                 {/* Continue/Start Link */}
+                <div className={`flex gap-2 ${Math.floor(((course.completedVideos.length-1)/course.totalVideos)*100) === 0 ? '':''}`}>
+                            <div
+                              className={` w-full h-1 bg-zinc-800/50 rounded-full mt-2 overflow-hidden`}
+                            >
+                              <div
+                                className={`h-full bg-blue-500  rounded-full opacity-80`}
+                                style={{
+                                  width: `${(((course.completedVideos.length-1)/course.totalVideos)*100)}%`,
+                                }}
+                              ></div>
+                            </div>
+                            <span
+                              className={`text-[11px] font-medium text-zinc-500
+                            
+                            `}
+                            >
+                              {`${Math.floor(((course.completedVideos.length-1)/course.totalVideos)*100)}%`}
+                            </span>
+                          </div>
                 <div className="mt-6 pt-4 border-t border-white/5 flex items-center justify-between">
+                  <span className="text-[13px] font-bold text-zinc-500 group-hover:text-zinc-300 transition-colors">
+                    Lesson: {Number(localStorage.getItem(`last_video_played_${course._id}`))+1}
+                  </span>
                   <span className="text-[13px] font-bold text-zinc-500 group-hover:text-zinc-300 transition-colors">
                     Total Videos: {course.totalVideos}
                   </span>
@@ -514,7 +536,29 @@ const HomePage = () => {
                 </div> */}
 
                 {/* Continue/Start Link */}
+                <div className={`flex gap-2 ${Math.floor(((course.completedVideos.length-1)/course.totalVideos)*100) === 0 ? 'hidden':''}`}>
+                            <div
+                              className={` w-full h-1 bg-zinc-800/50 rounded-full mt-2 overflow-hidden`}
+                            >
+                              <div
+                                className={`h-full bg-blue-500  rounded-full opacity-80`}
+                                style={{
+                                  width: `${Math.floor(((course.completedVideos.length -1)/course.totalVideos)*100)}%`,
+                                }}
+                              ></div>
+                            </div>
+                            <span
+                              className={`text-[11px] font-medium text-zinc-500
+                            
+                            `}
+                            >
+                              {`${Math.floor(((course.completedVideos.length -1)/course.totalVideos)*100)}%`}
+                            </span>
+                          </div>
                 <div className="mt-6 pt-4 border-t border-white/5 flex items-center justify-between">
+                  <span className="text-[13px] font-bold text-zinc-500 group-hover:text-zinc-300 transition-colors">
+                    Lesson: {Number(localStorage.getItem(`last_video_played_${course._id}`))+1}
+                  </span>
                   <span className="text-[13px] font-bold text-zinc-500 group-hover:text-zinc-300 transition-colors">
                     Total Videos: {course.totalVideos}
                   </span>

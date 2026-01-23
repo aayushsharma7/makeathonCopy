@@ -31,7 +31,6 @@ const CreateCourse = () => {
       const responsePost = await axios.get(
         `http://localhost:3000/auth/check`, {withCredentials: true}
       );
-      console.log(responsePost.data);
       if(responsePost.data.code === 200){
         setIsLoggedIn(true);
         setInfor(response.data.info);
@@ -56,7 +55,6 @@ const CreateCourse = () => {
         payload,
         {withCredentials: true}
       );
-      console.log(responsePost);
       return responsePost;
     } catch (error) {
       // console.log(error.status);
@@ -91,6 +89,12 @@ const CreateCourse = () => {
       });
       const url = `/courses`
       navigate(url)
+    }
+    else{
+      setStatusCode({
+        code: res.status,
+        data: res.data,
+      });
     }
 
   };

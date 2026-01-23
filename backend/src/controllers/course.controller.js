@@ -111,8 +111,8 @@ export const courseController = async (req,res) => {
             res.status(200).send(`Course created successfully` );
         }
         else{
-            res.status(409).send("Already Exists")
-            console.log("Course not created: Already Exists")
+            res.status(409).send("Already Exists");
+            console.log("Course not created: Already Exists");
         }
 
     } catch (error) {
@@ -436,6 +436,7 @@ export const getRecommendedProblems = async (req,res) => {
             3. EXTRACTION:
             - For each identified topic, find **3 distinct practice problems** from LeetCode or GeeksForGeeks (GFG) or Codechef or Codeforces or HackerRank or Kaggle etc......
             - Ensure URLs are valid and canonical.
+            - REVERIFY ALL URLs AND STRICTLY ENSURE THEY ARE VALID AND OPEN THE PROBLEM NOT THE 404 PAGE
             4. OUTPUT FORMAT (Strict JSON):
             - You must return a root object containing a list named "data" and a boolean "relevant" which should be true if video is relevant and you have found problems else it should be false.
             - NO markdown formatting (no \`\`\`json).
@@ -471,13 +472,12 @@ export const getRecommendedProblems = async (req,res) => {
                 }
             ]
             }
-
             --AGAIN DO NOT SEND ANYTHING ELSE EXCEPT THE JSON SCHEMA I TOLD YOU TO SEND
-            Here are the title and descriptions of the video for you to reference to-
-            videoTitle: ${title},
-            videoDescriptions: ${description},
             `},
-                { role: "user", content: "generate recommended problems" }
+                { role: "user", content: JSON.stringify({
+                    videoTitle: title,
+                    videoDescription: description
+                }) }
             ],
             response_format: { type: "json_object" }
             });
