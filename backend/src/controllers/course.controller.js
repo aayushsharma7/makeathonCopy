@@ -9,6 +9,7 @@ import { fetchTranscript } from 'youtube-transcript-plus';
 import { Notes } from "../models/note.model.js";
 import { Transcript } from "../models/transcript.model.js";
 import { Problems } from "../models/problems.model.js";
+import { Summary } from "../models/summary.model.js";
 
 
 
@@ -247,6 +248,130 @@ export const getAi = async (req,res) => {
         `,
         });
         res.status(200).send(result.text);
+
+    } catch (error) {
+        console.error("Chat Error:", error);
+        res.status(500).json({ error: "Server Error" });
+    }
+
+    // const response = await generateText({
+    // model: groq('llama-3.1-8b-instant'),
+    // prompt: `heres the transcripts : ${transcript}, now can u answer ques based ion this video? 
+    // Ques : I dont understand what he taught at 475s `,
+    // });
+
+    // res.send(response.text);
+
+    // gemini
+    // const ai = new GoogleGenAI({
+    //     apiKey: process.env.GEMINI_API_KEY
+    // });
+    // const response = await ai.models.generateContent({
+    //     model: "gemini-2.5-flash",
+    //     contents: "Here is a video link: https://www.youtube.com/watch?v=IBrmsyy9R94&pp=ygUYbGF6eSBsb2FkaW5nIGluIHJlYWN0IGpz,  Now can you see/learn/know what is inside the videoa and answer questions based on the video if asked? ",
+    // });
+    // res.send(response.text);
+}
+export const getSummary = async (req,res) => {
+    try {
+        const { videoId, title, description} = req.body;
+        const checkIfExists = await Summary.find({
+            videoId
+        });
+        if(checkIfExists.length !== 0){
+            const data = checkIfExists[0];
+            res.status(200).json(data);
+        }
+        else{
+            const result = await generateText({
+            model: groq('meta-llama/llama-4-scout-17b-16e-instruct'),
+            temperature: 0,
+            messages: [
+                { role: "system", content: `
+            **Role:** You are an expert Academic Note-Taker and Curriculum Developer. Your task is to generate **complete, detailed, and structured study notes** based *only* on the provided Video Title and Video Description.
+            ## Core Instructions
+            ### 1. Noise Filtration (Strict)
+            - **DISCARD:** All promotional text, subscription requests, social media links, sponsorships, merchandise plugs, affiliate links, and generic channel introductions.
+            - **KEEP:** Educational content, timestamps, chapter markers, and topic outlines provided by the creator.
+            ### 2. Content Expansion (Sparse Data Rule)
+            - Video descriptions may be incomplete or uninformative.
+            - If the description lacks sufficient educational detail, **use the Video Title as the primary source of truth**.
+            - Generate comprehensive, textbook-quality explanations using your internal knowledge of the topic.
+            - Ensure all content is **strictly relevant** to the topic mentioned in the title.
+            ### 3. Standalone Notes Rule
+            - Do **NOT** reference the video, instructor, speaker, or phrases like *"in this video"*.
+            - Write the notes as **independent academic material**, suitable for revision and exam preparation.
+            ### 4. Formatting Rules (Strict Markdown)
+            - **NO HTML:** Do not use any HTML tags.
+            - **Headings:** Use ## for main sections and ### for subsections. Do NOT use #.
+            - **Styling:**  
+            - **Bold** → keywords  
+            - *Italics* → definitions  
+            - **Code:** Use fenced code blocks with language identifiers.
+            - **Lists:**  
+            - - for bullet points  
+            -1. for ordered steps  
+            - **Tables:** Use GitHub-Flavored Markdown tables where comparisons are useful.
+            ### 5. Depth Requirement
+            - The notes should be **detailed and explanatory**, not a brief summary.
+            - Aim for clarity, completeness, and conceptual depth.
+
+            ## Target Output Structure
+
+            ## Introduction
+            A concise overview of the topic and key learning outcomes.
+
+            ## Core Concepts
+            - **[Concept Name]:** Detailed explanation.
+            - **[Concept Name]:** Detailed explanation.
+
+            ## Implementation & Examples
+            *(If the topic is technical or coding related)*
+
+            // meaningful, well-commented example relevant to the topic
+
+            Here are the title and descriptions of the video for you to reference to-
+            videoTitle: ${title},
+            videoDescriptions: ${description},
+            `},
+                { role: "user", content: "generate summary" }
+            ],
+            });
+            const newSummary = new Summary({
+                videoId,
+                summary: result.text
+            });
+            await newSummary.save();
+            res.status(200).json(newSummary);
+        }
+        //     rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoId}`);
+        //     const newAddTs = new Transcript({
+        //         videoId,
+        //         transcript: rawTranscript
+        //     });
+        //     await newAddTs.save();
+        // }
+        // else{
+        //     rawTranscript = checkIfExists[0].transcript;
+        // }
+
+        // const transcript = rawTranscript.map((data) => {
+        //     const timestamp = (data.offset);
+        //     return `[${timestamp}s] ${data.text}`
+        // }).join('\n');
+
+        
+
+        // res.send(newTranscript);
+
+        // const userQuery = messages[messages.length - 1].content;
+
+        // const answer = await askWithContext(transcript, userQuery, videoId);
+        
+        // res.status(200).send((result.text));
+       
+        // res.send(transcript);
+        
 
     } catch (error) {
         console.error("Chat Error:", error);

@@ -27,6 +27,8 @@ import {
   Bug,
   ExternalLink,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Plyr from "plyr";
 import "plyr/dist/plyr.css";
@@ -46,6 +48,7 @@ const CoursePlayer = () => {
   const [isCardsOpen, setIsCardsOpen] = useState(false);
   const [isPracticeOpen, setIsPracticeOpen] = useState(false);
   const [problemsLoading, setProblemsLoading] = useState(true);
+  const [isSummaryButtonOpen, setIsSummaryButtonOpen] = useState(true);
   const playerInstanceRef = useRef(null); // to use the player outside the useeffect...
   const [messages, setMessages] = useState([
     {
@@ -60,11 +63,12 @@ const CoursePlayer = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [currVideo, setCurrVideo] = useState("");
   const [notesLoading, setNotesLoading] = useState(true);
+  const [summaryLoading, setSummaryLoading] = useState(true)
 
   const [videoProgress, setVideoProgress] = useState({});
   const [courseProgress, setCourseProgress] = useState({});
 
-  const [isProblemButtonOpen, setIsProblemButtonOpen] = useState(true)
+  const [isProblemButtonOpen, setIsProblemButtonOpen] = useState(true);
 
   const [input, setInput] = useState("");
   const chatContainerRef = useRef(null);
@@ -79,6 +83,7 @@ const CoursePlayer = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [problemsData, setProblemsData] = useState([]);
   const [relevant, setRelevant] = useState(true);
+  const [summaryData, setSummaryData] = useState("");
 
   const checkAuth = async () => {
     try {
@@ -98,13 +103,28 @@ const CoursePlayer = () => {
 
   useEffect(() => {
     setIsProblemButtonOpen(true);
-    if(localStorage.getItem(`problemsOpened_${data?.[activeIndex]?._id}`)){
-      if(localStorage.getItem(`problemsOpened_${data?.[activeIndex]?._id}`) === "false"){
+    if (localStorage.getItem(`problemsOpened_${data?.[activeIndex]?._id}`)) {
+      if (
+        localStorage.getItem(`problemsOpened_${data?.[activeIndex]?._id}`) ===
+        "false"
+      ) {
         setIsProblemButtonOpen(false);
+        setNotesLoading(true);
         getProblemsData();
       }
     }
-  },[activeIndex]);
+    setIsSummaryButtonOpen(true);
+    if (localStorage.getItem(`summaryOpened_${data?.[activeIndex]?._id}`)) {
+      if (
+        localStorage.getItem(`summaryOpened_${data?.[activeIndex]?._id}`) ===
+        "false"
+      ) {
+        setIsSummaryButtonOpen(false);
+        setSummaryLoading(true);
+        getSummaryData();
+      }
+    }
+  }, [activeIndex]);
 
   const getData = async () => {
     try {
@@ -139,6 +159,27 @@ const CoursePlayer = () => {
     }
   };
 
+  const getSummaryData = async () => {
+    try {
+      const res = await axios.post(
+        `http://localhost:3000/course/generate/summary`,
+        {
+          videoId: data?.[activeIndex]?.videoId,
+          title: data?.[activeIndex]?.title,
+          description: data?.[activeIndex]?.description,
+        },
+        {
+          withCredentials: true,
+        }
+      );
+      console.log(res.data.summary)
+      setSummaryData(res.data.summary);
+    } catch (error) {
+      console.log(error);
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
   const getProblemsData = async () => {
     try {
       const res = await axios.post(
@@ -166,7 +207,6 @@ const CoursePlayer = () => {
   useEffect(() => {
     checkAuth();
     getData();
-    
   }, []);
 
   const getNotesData = async () => {
@@ -995,7 +1035,8 @@ const CoursePlayer = () => {
               </div> */}
             </div>
           </div>
-          {/* RIGHT COLUMN: PLAYLIST + CHAT and Notes */}
+            {/* RIGHT COLUMN: PLAYLIST + CHAT and Notes */}
+          
           <div
             className={`${
               isToolsOpen ? "" : "hidden"
@@ -1071,6 +1112,7 @@ const CoursePlayer = () => {
                     {data.slice(0, activeIndex + 50).map((video, index) => (
                       <div
                         onClick={() => {
+                          
                           setActive(index);
                         }}
                         key={index}
@@ -1593,7 +1635,6 @@ const CoursePlayer = () => {
                   setIsChatOpen(false);
                   setIsCardsOpen(false);
                   setIsPracticeOpen(!isPracticeOpen);
-                  
                   // getProblemsData();
                 }}
                 className="px-5 py-2 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
@@ -1624,124 +1665,137 @@ const CoursePlayer = () => {
                 }`}
               >
                 <div className="overflow-hidden">
-  <div className="flex flex-col h-125 md:max-h-150 relative">
-    <div
-      className={`${
-        isProblemButtonOpen ? "" : "hidden"
-      } flex items-center justify-center mt-10`}
-    >
-      <button
-        onClick={() => {
-          setIsProblemButtonOpen(false);
-          getProblemsData();
-          localStorage.setItem(`problemsOpened_${data?.[activeIndex]?._id}`, "false");
-        }}
-        className="group relative w-40 flex items-center justify-center gap-2.5 p-3.5 rounded-xl border bg-white/5 border-[#FFA116]/20 hover:border-[#FFA116]/50 hover:bg-[#FFA116]/10 hover:shadow-[0_0_15px_-3px_rgba(255,161,22,0.15)] transition-all duration-300 cursor-pointer"
-      >
-        <span className="text-sm font-semibold tracking-wide text-[#FFA116] group-hover:text-[#ffb347]">
-          Get Problems
-        </span>
-      </button>
-    </div>
-    <div className={`${isProblemButtonOpen ? "hidden" : ""} flex flex-col h-full min-h-0`}>
-      {problemsLoading ? (
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 items-center justify-center custom-scrollbar">
-          <div className="flex-1 bg-white/5 border border-white/5 rounded-2xl rounded-tl-none p-3 text-sm text-zinc-300 leading-relaxed max-w-25">
-            <div className="flex gap-1 items-center h-full justify-center">
-              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
-              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
-              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" />
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col h-full min-h-0">
-          <div
-            className={`${
-              relevant ? "" : "hidden"
-            } flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar`}
-          >
-            <div className={``}>
-              {problemsData.map((item, idx) => {
-                return (
-                  <div>
-                    <div className="">
-                      <h1 className="mb-2 ml-1 text-zinc-400">
-                        Task {idx + 1}:{" "}
-                        <span className="text-blue-500">{item.topic}</span>
-                      </h1>
-                      {item.problems.map((item1, idx1) => {
-                        return (
-                          <div
-                            className={`${
-                              idx1 === item.problems.length - 1? "mb-5" : ""
-                            } group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#FFA116]/30 hover:bg-white/6 transition-all mb-2`}
-                          >
-                            <div className="flex justify-between items-center mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-[11px] font-bold text-zinc-400 group-hover:text-[#FFA116] transition-colors">
-                                  {item1.platform}
-                                </span>
-                              </div>
-
-                              <a
-                                href={item1.link}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-zinc-500 hover:text-[#FFA116] transition-colors"
-                              >
-                                <ExternalLink size={14} />
-                              </a>
-                            </div>
-
-                            <h3 className="text-sm font-semibold text-zinc-200 ml-1 leading-tight mb-2 hover:text-[#FFA116] cursor-pointer transition-colors truncate">
-                              {idx1 + 1}. {item1.title}
-                            </h3>
-
-                            <div className="flex flex-wrap gap-1.5 ml-1">
-                              {item1.tags.map((item, idx) => {
-                                return (
-                                  <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-800/50 text-zinc-400 border border-white/5 group-hover:border-[#FFA116]/20 transition-colors">
-                                    {item}
-                                  </span>
-                                );
-                              })}
-
-                              <span
-                                className={`text-[10px] px-2 py-0.5 rounded ${
-                                  item1.difficulty === "Easy"
-                                    ? "bg-green-500/10 text-green-500 border-green-500/20"
-                                    : `${
-                                        item1.difficulty === "Medium"
-                                          ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
-                                          : "bg-red-500/10 text-red-500 border-red-500/20"
-                                      }`
-                                }  border `}
-                              >
-                                {item1.difficulty}
-                              </span>
+                  <div className="flex flex-col h-fit md:max-h-150 relative">
+                    <div
+                      className={`${
+                        isProblemButtonOpen ? "" : "hidden"
+                      } flex items-center justify-center mt-5 mb-5`}
+                    >
+                      <button
+                        onClick={() => {
+                          setIsProblemButtonOpen(false);
+                          setProblemsLoading(true);
+                          getProblemsData();
+                          localStorage.setItem(
+                            `problemsOpened_${data?.[activeIndex]?._id}`,
+                            "false"
+                          );
+                        }}
+                        className="group relative w-35 flex items-center justify-center gap-2.5 p-2 rounded-md border bg-white/5 border-zinc-200/30 hover:border-blue-500/50  transition-all duration-300 cursor-pointer"
+                      >
+                        <span className="text-sm font-semibold tracking-wide text-zinc-300 ">
+                          Get Problems
+                        </span>
+                      </button>
+                    </div>
+                    <div
+                      className={`${
+                        isProblemButtonOpen ? "hidden" : ""
+                      } flex flex-col h-full min-h-0`}
+                    >
+                      {problemsLoading ? (
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 items-center justify-center custom-scrollbar">
+                          <div className="flex-1 bg-white/5 border border-white/5 rounded-2xl rounded-tl-none p-3 text-sm text-zinc-300 leading-relaxed max-w-25">
+                            <div className="flex gap-1 items-center h-full justify-center">
+                              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" />
                             </div>
                           </div>
-                        );
-                      })}
+                        </div>
+                      ) : (
+                        <div className="flex flex-col h-full min-h-0">
+                          <div
+                            className={`${
+                              relevant ? "" : "hidden"
+                            } flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar`}
+                          >
+                            <div className={``}>
+                              {problemsData.map((item, idx) => {
+                                return (
+                                  <div>
+                                    <div className="">
+                                      <h1 className="mb-2 ml-1 text-zinc-400">
+                                        Task {idx + 1}:{" "}
+                                        <span className="text-blue-500">
+                                          {item.topic}
+                                        </span>
+                                      </h1>
+                                      {item.problems.map((item1, idx1) => {
+                                        return (
+                                          <div
+                                            className={`${
+                                              idx1 === item.problems.length - 1
+                                                ? "mb-5"
+                                                : ""
+                                            } group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#FFA116]/30 hover:bg-white/6 transition-all mb-2`}
+                                          >
+                                            <div className="flex justify-between items-center mb-2">
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-[11px] font-bold text-zinc-400 group-hover:text-[#FFA116] transition-colors">
+                                                  {item1.platform}
+                                                </span>
+                                              </div>
+
+                                              <a
+                                                href={item1.link}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-zinc-500 hover:text-[#FFA116] transition-colors"
+                                              >
+                                                <ExternalLink size={14} />
+                                              </a>
+                                            </div>
+
+                                            <h3 className="text-sm font-semibold text-zinc-200 ml-1 leading-tight mb-2 hover:text-[#FFA116] cursor-pointer transition-colors truncate">
+                                              {idx1 + 1}. {item1.title}
+                                            </h3>
+
+                                            <div className="flex flex-wrap gap-1.5 ml-1">
+                                              {item1.tags.map((item, idx) => {
+                                                return (
+                                                  <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-800/50 text-zinc-400 border border-white/5 group-hover:border-[#FFA116]/20 transition-colors">
+                                                    {item}
+                                                  </span>
+                                                );
+                                              })}
+
+                                              <span
+                                                className={`text-[10px] px-2 py-0.5 rounded ${
+                                                  item1.difficulty === "Easy"
+                                                    ? "bg-green-500/10 text-green-500 border-green-500/20"
+                                                    : `${
+                                                        item1.difficulty ===
+                                                        "Medium"
+                                                          ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
+                                                          : "bg-red-500/10 text-red-500 border-red-500/20"
+                                                      }`
+                                                }  border `}
+                                              >
+                                                {item1.difficulty}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div
+                            className={`${
+                              relevant ? "hidden" : ""
+                            } flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar`}
+                          >
+                            <h1>No relevant problems found.....</h1>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-          <div
-            className={`${
-              relevant ? "hidden" : ""
-            } flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar`}
-          >
-            <h1>No relevant problems found.....</h1>
-          </div>
-        </div>
-      )}
-    </div>
-  </div>
-</div>
+                </div>
               </div>
             </div>
           </div>
@@ -1751,12 +1805,12 @@ const CoursePlayer = () => {
               isSummaryOpen ? "" : "hidden"
             }  lg:col-span-4 flex flex-col gap-2`}
           >
-            <div className="max-h-133 flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
+            <div className="md:max-h-160 max-h-160  flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
               {/* Header */}
               <div className="px-5 py-2 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors">
                 <div className="flex items-center gap-3">
                   <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
-                    AI NOTES
+                    COMPLETE NOTES
                   </span>
                 </div>
                 {/* <span className="text-[11px] font-bold text-zinc-400">
@@ -1778,224 +1832,118 @@ const CoursePlayer = () => {
 
               {/* Body */}
               <div
-                className={`grid transition-[grid-template-rows] duration-500 ease-in-out `}
               >
                 <div className="overflow-hidden ">
-                  {/* <div className="px-4 mb-2">
-                  <span className="text-[11px] font-bold text-zinc-400">
-                    Showing 
-                {JSON.parse(
-                  localStorage.getItem(
-                    `completed_videos_${data?.[activeIndex]?.playlist}`
-                  )
-                )?.length || courseData?.[0]?.completedVideos?.length
-                  ? JSON.parse(
-                      localStorage.getItem(
-                        `completed_videos_${data?.[activeIndex]?.playlist}`
-                      )
-                    )?.length - 1 ||
-                    courseData?.[0]?.completedVideos?.length - 1
-                  : courseData?.[0]?.completedVideos?.length - 1}{" "}
-                / {data?.length} Completed
-              </span>
-                </div> */}
                   {/* Scrollable Area */}
-                  <div className="p-3 md:pb-28 space-y-2 max-h-90 md:max-h-150 overflow-y-auto custom-scrollbar hover:pr-2">
-                    {data.slice(0, activeIndex + 50).map((video, index) => (
+                  <div className={`p-3 space-y-2 max-h-160 ${
+                        isSummaryButtonOpen ? "" : "pb-13"
+                      }  overflow-y-auto custom-scrollbar`}>
                       <div
-                        onClick={() => {
-                          setActive(index);
-                        }}
-                        key={index}
-                        className={`
-              group flex items-center gap-4 p-3 rounded-xl transition-all duration-200 cursor-pointer border
-              ${
-                activeIndex === index
-                  ? ` ${
-                      (JSON.parse(
-                        localStorage.getItem(
-                          `video_${data[index].videoId}_progress`
-                        )
-                      )?.completed || data?.[index]?.completed) === true
-                        ? "bg-green-500/5 border-green-500/20"
-                        : "bg-[#2563EB]/5 border-[#2563EB]/20"
-                    }`
-                  : "bg-transparent border-transparent hover:bg-white/5"
-              }
-            `}
-                        //  : `${completedVideos.filter((num) => num===index).length === 0 ? 'bg-green-500/5 border-green-500/20 text-zinc-700':'bg-transparent border-transparent hover:bg-white/5' }`
-                      >
-                        {/* Status Icon */}
-                        <div
-                          className={`
-                w-8 h-8 rounded-md flex items-center justify-center shrink-0 transition-transform duration-500 
-                ${
-                  activeIndex === index
-                    ? `${
-                        (JSON.parse(
-                          localStorage.getItem(
-                            `video_${data[index].videoId}_progress`
-                          )
-                        )?.completed || data?.[index]?.completed) === true
-                          ? "bg-green-500/80"
-                          : "bg-[#2563EB]"
-                      } text-black `
-                    : `bg-transparent text-zinc-700 border  ${
-                        (JSON.parse(
-                          localStorage.getItem(
-                            `video_${data[index].videoId}_progress`
-                          )
-                        )?.completed || data?.[index]?.completed) === true
-                          ? "border-green-500/50"
-                          : "border-white/5"
-                      }`
-                }
-                
-              `}
-                        >
-                          {activeIndex === index ? (
-                            <Play size={14} fill="black" />
-                          ) : (
-                            <span className="text-[10px] font-bold ">
-                              {(JSON.parse(
-                                localStorage.getItem(
-                                  `video_${data[index].videoId}_progress`
-                                )
-                              )?.completed || data?.[index]?.completed) ===
-                              true ? (
-                                <div className="text-green-500">
-                                  <SquareCheckBig size={14} />
-                                </div>
-                              ) : (
-                                index + 1
-                              )}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Video Thumbnail */}
-                        <div className="shrink-0 relative rounded-md overflow-hidden border border-white/10 w-20 h-11 bg-zinc-900">
-                          <img
-                            src={video.thumbnail}
-                            alt={video.title}
-                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 grayscale-[0.3] group-hover:grayscale-0"
-                          />
-                        </div>
-
-                        {/* Text Info */}
-                        <div className="flex-1 min-w-0">
-                          <h4
-                            className={`text-sm font-bold mb-1 leading-tight truncate ${
-                              activeIndex === index
-                                ? "text-white"
-                                : "text-zinc-400 group-hover:text-zinc-200"
-                            }`}
+                      className={`${
+                        isSummaryButtonOpen ? "" : "hidden"
+                      } flex items-center justify-center`}
+                    >
+                      <button
+                            onClick={() => {
+                              setIsSummaryButtonOpen(false);
+                              setSummaryLoading(true);
+                              getSummaryData();
+                              localStorage.setItem(
+                                `summaryOpened_${data?.[activeIndex]?._id}`,
+                                "false"
+                              );
+                            }}
+                            className="group relative w-42 flex items-center justify-center gap-2.5 p-2 rounded-sm border bg-white/5 border-zinc-200/30 hover:border-blue-500/50  transition-all duration-300 cursor-pointer"
                           >
-                            {video.title}
-                          </h4>
-                          <div className="flex items-center gap-2">
-                            <Clock
-                              size={10}
-                              className={
-                                activeIndex === index
-                                  ? "text-[#2563EB]"
-                                  : "text-zinc-600"
-                              }
-                            />
-                            <span
-                              className={`text-[11px] font-medium ${
-                                activeIndex === index
-                                  ? "text-[#2563EB]"
-                                  : "text-zinc-600"
-                              }`}
-                            >
-                              {video.duration
-                                .replace("PT", "")
-                                .replace("H", ":")
-                                .replace("M", ":")
-                                .replace("S", "")}
+                            <span className="text-sm font-semibold tracking-wide text-zinc-300 ">
+                              Generate Summary
                             </span>
-                          </div>
-                          <div className="flex gap-2">
-                            <div
-                              className={`${
-                                JSON.parse(
-                                  localStorage.getItem(
-                                    `video_${data[index].videoId}_progress`
-                                  )
-                                )?.progressTime || data?.[index]?.progressTime
-                                  ? ""
-                                  : "hidden"
-                              } w-full h-1 bg-zinc-800/50 rounded-full mt-2 overflow-hidden`}
-                            >
-                              <div
-                                className={`h-full ${
-                                  (JSON.parse(
-                                    localStorage.getItem(
-                                      `video_${data[index].videoId}_progress`
-                                    )
-                                  )?.completed || data[index].completed) ===
-                                  true
-                                    ? "bg-green-500"
-                                    : "bg-[#2563EB]"
-                                }  rounded-full opacity-80`}
-                                style={{
-                                  width: `${
-                                    ((JSON.parse(
-                                      localStorage.getItem(
-                                        `video_${data[index].videoId}_progress`
-                                      )
-                                    )?.progressTime ||
-                                      data?.[index]?.progressTime) /
-                                      (JSON.parse(
-                                        localStorage.getItem(
-                                          `video_${data[index].videoId}_progress`
-                                        )
-                                      )?.duration ||
-                                        data[index].totalDuration)) *
-                                    100
-                                  }%`,
-                                }}
-                              ></div>
+                          </button>
+                    </div>
+                    <div className={`${
+                        isSummaryButtonOpen ? "hidden" : ""
+                      } `}>
+                      {summaryLoading ? (
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 items-center justify-center custom-scrollbar">
+                          <div className="flex-1 bg-white/5 border border-white/5 rounded-2xl rounded-tl-none p-3 text-sm text-zinc-300 leading-relaxed max-w-25">
+                            <div className="flex gap-1 items-center h-full justify-center">
+                              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" />
                             </div>
-                            <span
-                              className={`text-[11px] font-medium ${
-                                activeIndex === index
-                                  ? "text-[#2563EB]"
-                                  : "text-zinc-600"
-                              }
-                            ${
-                              JSON.parse(
-                                localStorage.getItem(
-                                  `video_${data[index].videoId}_progress`
-                                )
-                              )?.progressTime || data?.[index]?.progressTime
-                                ? ""
-                                : "hidden"
-                            }
-                            `}
-                            >
-                              {`${Math.floor(
-                                ((JSON.parse(
-                                  localStorage.getItem(
-                                    `video_${data[index].videoId}_progress`
-                                  )
-                                )?.progressTime ||
-                                  data?.[index]?.progressTime) /
-                                  (JSON.parse(
-                                    localStorage.getItem(
-                                      `video_${data[index].videoId}_progress`
-                                    )
-                                  )?.duration || data[index].totalDuration)) *
-                                  100
-                              )}%`}
-                            </span>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ) : (
+                        <div className="bg-zinc-500/5 h-full p-3 overflow-scroll md:overflow-hidden w-full rounded-md border border-zinc-400/20">
+                    <div className="-mt-4">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                      components={{
+      h1: ({ children }) => (
+        <h1 className="text-3xl font-bold mt-6 mb-4">{children}</h1>
+      ),
+      h2: ({ children }) => (
+        <h2 className="text-2xl font-semibold mt-5 mb-3">{children}</h2>
+      ),
+      h3: ({ children }) => (
+        <h3 className="text-xl font-medium mt-4 mb-2">{children}</h3>
+      ),
 
-                    {/* <div className="sticky bottom-0 h-8 bg-linear-to-t from-[#141414] to-transparent pointer-events-none z-10 -mb-3"></div> */}
+      p: ({ children }) => (
+        <div className="text-gray-300 leading-7 mb-3">{children}</div>
+      ),
+
+      ul: ({ children }) => (
+        <ul className="list-disc pl-6 mb-4 space-y-2">{children}</ul>
+      ),
+      li: ({ children }) => <li className="text-gray-300">{children}</li>,
+
+      pre: ({ children }) => (
+        <pre className="bg-zinc-900 p-4 rounded-lg overflow-x-auto my-4 border border-zinc-800 shadow-md">
+          {children}
+        </pre>
+      ),
+
+      /* ✅ FIX 2: Color Logic */
+      code: ({ inline, className, children, ...props }) => {
+        const match = /language-(\w+)/.exec(className || '');
+        const isInline = inline || !match;
+
+        return isInline ? (
+          <code className="bg-zinc-800 px-1 py-0.5 rounded text-sm text-gray-200 font-mono">
+            {children}
+          </code>
+        ) : (
+          <code
+            className={`${className || ""} text-green-400 block text-sm font-mono`}
+          >
+            {children}
+          </code>
+        );
+      },
+
+      blockquote: ({ children }) => (
+        <blockquote className="border-l-4 border-zinc-600 pl-4 italic text-gray-400 my-4">
+          {children}
+        </blockquote>
+      ),
+      a: ({ href, children }) => (
+        <a href={href} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
+          {children}
+        </a>
+      ),
+    }}>{summaryData.replace(/\\n/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(/([^\n])```/g, "$1\n\n```")
+    .replace(/```(\w+)([^\n])/g, "```$1\n$2")}
+                      </ReactMarkdown>
+                    </div>
+                        
+                    </div>
+                    )}
+                    </div>
+                     
+                    
                   </div>
                 </div>
               </div>
@@ -2257,6 +2205,7 @@ const CoursePlayer = () => {
               </div>
             </div>
           </div>
+          
         </div>
       </div>
     </div>
