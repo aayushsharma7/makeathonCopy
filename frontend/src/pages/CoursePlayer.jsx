@@ -1,32 +1,23 @@
 import React, { useEffect, useState, useRef, act } from "react";
 import {
   Play,
-  Pause,
-  Check,
   ChevronLeft,
   Clock,
-  Volume2,
-  Maximize2,
-  Settings,
   ChevronDown,
   Send,
-  Sparkles,
   Bot,
   BookCopy,
   SquareCheckBig,
   PencilRuler,
   Pencil,
   Trash2,
-  MessageCircleQuestionMark,
-  BookCheck,
-  BookOpenCheck,
-  ToolCase,
-  LucideTableConfig,
   ListVideo,
   Code,
   Bug,
   ExternalLink,
+  ClipboardPen,
 } from "lucide-react";
+
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -34,8 +25,24 @@ import Plyr from "plyr";
 import "plyr/dist/plyr.css";
 
 import axios from "axios";
-import ReactPlayer from "react-player";
-import { fetchTranscript } from "youtube-transcript-plus";
+import { Excalidraw, WelcomeScreen, serializeAsJSON } from "@excalidraw/excalidraw";
+import Editor from "@monaco-editor/react";
+import "@excalidraw/excalidraw/index.css"; //else tailwind css messed it up
+
+  const CODE_SNIPPETS = {
+    javascript: `// JavaScript Playground\nconsole.log("Hello World!");\n\nfunction sum(a, b) {\n  return a + b;\n}`,
+    python: `# Python Playground\ndef main():\n    print("Hello World!")\n\nif __name__ == "__main__":\n    main()`,
+    java: `// Java Playground\npublic class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello World!");\n    }\n}`,
+    cpp: `// C++ Playground\n#include <iostream>\n\nint main() {\n    std::cout << "Hello World!" << std::endl;\n    return 0;\n}`
+  };
+
+  const LANGUAGE_VERSIONS = {
+    javascript: "18.15.0",
+    python: "3.10.0",
+    java: "15.0.2",
+    c: "10.2.0",
+    cpp: "10.2.0",
+  };
 
 const CoursePlayer = () => {
   const [data, setData] = useState([]);
@@ -49,6 +56,8 @@ const CoursePlayer = () => {
   const [isPracticeOpen, setIsPracticeOpen] = useState(false);
   const [problemsLoading, setProblemsLoading] = useState(true);
   const [isSummaryButtonOpen, setIsSummaryButtonOpen] = useState(true);
+  const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
+  const [DrawLoading, setDrawLoading] = useState(true)
   const playerInstanceRef = useRef(null); // to use the player outside the useeffect...
   const [messages, setMessages] = useState([
     {
@@ -78,12 +87,65 @@ const CoursePlayer = () => {
   const [isToolsOpen, setIsToolsOpen] = useState(true);
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
   const [isIdeOpen, setIsIdeOpen] = useState(false);
+  const [isExcaliOpen, setIsExcaliOpen] = useState(false);
   const [notesInput, setNotesInput] = useState("");
   const navigate = useNavigate();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [problemsData, setProblemsData] = useState([]);
   const [relevant, setRelevant] = useState(true);
   const [summaryData, setSummaryData] = useState("");
+
+  const [ideLanguage, setIdeLanguage] = useState("javascript");
+  const [ideVersion, setIdeVersion] = useState(LANGUAGE_VERSIONS["javascript"]);
+  const [ideCode, setIdeCode] = useState(CODE_SNIPPETS["javascript"]);
+  const [output, setOutput] = useState([]);
+  const [isRunning, setIsRunning] = useState(false);
+
+  const [activeTab, setActiveTab] = useState("output"); 
+  const [userInput, setUserInput] = useState("");
+
+  const [initialDrawData, setInitialDrawData] = useState(null) //set it as null taaki if(!initialData) this can be done
+  
+  const onLanguageChange = (e) => {
+    const lang = e.target.value;
+    setIdeLanguage(lang);
+    setIdeVersion(LANGUAGE_VERSIONS[lang]);
+    setIdeCode(CODE_SNIPPETS[lang]);
+  };
+  const runCode = async () => {
+      setIsRunning(true);
+      setActiveTab("output");
+      setOutput(["Running code..."]);
+
+    try {
+      const response = await axios.post("https://emkc.org/api/v2/piston/execute", {
+        language: ideLanguage,
+        version: ideVersion,
+        files: [{ content: ideCode }],
+        stdin: userInput,
+      });
+
+      const { run: { stdout, stderr } } = response.data;
+      
+      if (stderr) {
+          setOutput(stderr.split("\n"));
+      } else {
+          setOutput(stdout.split("\n"));
+      }
+
+    } catch (error) {
+      console.error(error);
+      setOutput(["Error executing code.", "Check console for details."]);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const handleDrawChange = (elements, appState) => {
+    const json = serializeAsJSON(elements, appState, {}, "local"); //helper func from excali (keeps file clean)
+    // console.log( JSON.stringify(json));
+    localStorage.setItem(`excali_${courseData?.[0]?._id}`, JSON.stringify(json));
+  }
 
   const checkAuth = async () => {
     try {
@@ -205,6 +267,7 @@ const CoursePlayer = () => {
   useEffect(() => {
     checkAuth();
     getData();
+    
   }, []);
 
   const getNotesData = async () => {
@@ -959,6 +1022,7 @@ const CoursePlayer = () => {
                     setIsToolsOpen(true);
                     setIsIdeOpen(false);
                     setIsSummaryOpen(false);
+                    setIsExcaliOpen(false);
                   }}
                   className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
                 >
@@ -983,10 +1047,45 @@ const CoursePlayer = () => {
                     setIsToolsOpen(false);
                     setIsIdeOpen(true);
                     setIsSummaryOpen(false);
+                    setIsExcaliOpen(false);
                   }}
                   className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
                 >
                   <Code className="w-4 h-4 text-zinc-400 group-hover:text-white" />
+                </div>
+              </div>
+              <div>
+                <div
+                  onClick={() => {
+                    setIsToolsOpen(false);
+                    setIsIdeOpen(false);
+                    setIsSummaryOpen(false);
+                    setIsExcaliOpen(true);
+                    try {
+                      if(localStorage.getItem(`excali_${courseData?.[0]?._id}`)){
+                        const data = JSON.parse(localStorage.getItem(`excali_${courseData?.[0]?._id}`));
+                        setInitialDrawData({
+                          elements: data.elements,
+                          appState: data.appState,
+                          scrollToContent: true
+                        });
+                      }
+                      else{
+                        setInitialDrawData({ elements: [], appState: {viewBackgroundColor: "#ffffff", 
+                          currentItemStrokeColor: "#1e1e1e" } });
+                      };
+                    } catch (error) {
+                        setInitialDrawData({ elements: [], appState: {viewBackgroundColor: "#ffffff", 
+                          currentItemStrokeColor: "#1e1e1e" } });
+                    }finally{
+                      setDrawLoading(false);
+                    }
+                    
+                    
+                  }}
+                  className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
+                >
+                  <ClipboardPen className="w-4 h-4 text-zinc-400 group-hover:text-white" />
                 </div>
               </div>
             </div>
@@ -1432,6 +1531,7 @@ const CoursePlayer = () => {
                             required
                             autoComplete="off"
                             name="user_text"
+                            disabled={isChatLoading}
                             placeholder="Ask a question..."
                             className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-10 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all placeholder:text-zinc-600"
                           />
@@ -1515,10 +1615,6 @@ const CoursePlayer = () => {
                                             playerInstanceRef.current.currentTime =
                                               Number(item.timestamp);
                                             playerInstanceRef.current.play();
-                                            console.log(
-                                              playerInstanceRef.current
-                                                .currentTime
-                                            );
                                           }}
                                           className="text-[10px] cursor-pointer font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20"
                                         >
@@ -2027,7 +2123,7 @@ const CoursePlayer = () => {
                             className="group relative w-42 flex items-center justify-center gap-2.5 p-2 rounded-sm border bg-white/5 border-zinc-200/30 hover:border-blue-500/50  transition-all duration-300 cursor-pointer"
                           >
                             <span className="text-sm font-semibold tracking-wide text-zinc-300 ">
-                              Generate Summary
+                              Generate Notes
                             </span>
                           </button>
                     </div>
@@ -2049,64 +2145,63 @@ const CoursePlayer = () => {
                     <div className="-mt-4">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
-                      components={{
-      h1: ({ children }) => (
-        <h1 className="text-3xl font-bold mt-6 mb-4">{children}</h1>
-      ),
-      h2: ({ children }) => (
-        <h2 className="text-2xl font-semibold mt-5 mb-3">{children}</h2>
-      ),
-      h3: ({ children }) => (
-        <h3 className="text-xl font-medium mt-4 mb-2">{children}</h3>
-      ),
+                        components={{
+                          h1: ({ children }) => (
+                            <h1 className="text-3xl font-bold mt-6 mb-4">{children}</h1>
+                          ),
+                          h2: ({ children }) => (
+                            <h2 className="text-2xl font-semibold mt-5 mb-3">{children}</h2>
+                          ),
+                          h3: ({ children }) => (
+                            <h3 className="text-xl font-medium mt-4 mb-2">{children}</h3>
+                          ),
 
-      p: ({ children }) => (
-        <div className="text-gray-300 leading-7 mb-3">{children}</div>
-      ),
+                          p: ({ children }) => (
+                            <div className="text-gray-300 leading-7 mb-3">{children}</div>
+                          ),
 
-      ul: ({ children }) => (
-        <ul className="list-disc pl-6 mb-4 space-y-2">{children}</ul>
-      ),
-      li: ({ children }) => <li className="text-gray-300">{children}</li>,
+                          ul: ({ children }) => (
+                            <ul className="list-disc pl-6 mb-4 space-y-2">{children}</ul>
+                          ),
+                          li: ({ children }) => <li className="text-gray-300">{children}</li>,
 
-      pre: ({ children }) => (
-        <pre className="bg-zinc-900 p-4 rounded-lg overflow-x-auto my-4 border border-zinc-800 shadow-md">
-          {children}
-        </pre>
-      ),
+                          pre: ({ children }) => (
+                            <pre className="bg-zinc-900 p-4 rounded-lg overflow-x-auto my-4 border border-zinc-800 shadow-md">
+                              {children}
+                            </pre>
+                          ),
 
-      /* ✅ FIX 2: Color Logic */
-      code: ({ inline, className, children, ...props }) => {
-        const match = /language-(\w+)/.exec(className || '');
-        const isInline = inline || !match;
+                          code: ({ inline, className, children, ...props }) => {
+                            const match = /language-(\w+)/.exec(className || '');
+                            const isInline = inline || !match;
 
-        return isInline ? (
-          <code className="bg-zinc-800 px-1 py-0.5 rounded text-sm text-gray-200 font-mono">
-            {children}
-          </code>
-        ) : (
-          <code
-            className={`${className || ""} text-green-400 block text-sm font-mono`}
-          >
-            {children}
-          </code>
-        );
-      },
+                            return isInline ? (
+                              <code className="bg-zinc-800 px-1 py-0.5 rounded text-sm text-gray-200 font-mono">
+                                {children}
+                              </code>
+                            ) : (
+                              <code
+                                className={`${className || ""} text-green-400 block text-sm font-mono`}
+                              >
+                                {children}
+                              </code>
+                            );
+                          },
 
-      blockquote: ({ children }) => (
-        <blockquote className="border-l-4 border-zinc-600 pl-4 italic text-gray-400 my-4">
-          {children}
-        </blockquote>
-      ),
-      a: ({ href, children }) => (
-        <a href={href} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
-          {children}
-        </a>
-      ),
-    }}>{summaryData.replace(/\\n/g, "\n")
-    .replace(/\u00a0/g, " ")
-    .replace(/([^\n])```/g, "$1\n\n```")
-    .replace(/```(\w+)([^\n])/g, "```$1\n$2")}
+                          blockquote: ({ children }) => (
+                            <blockquote className="border-l-4 border-zinc-600 pl-4 italic text-gray-400 my-4">
+                              {children}
+                            </blockquote>
+                          ),
+                          a: ({ href, children }) => (
+                            <a href={href} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
+                              {children}
+                            </a>
+                          ),
+                        }}>{summaryData.replace(/\\n/g, "\n")
+                        .replace(/\u00a0/g, " ")
+                        .replace(/([^\n])```/g, "$1\n\n```")
+                        .replace(/```(\w+)([^\n])/g, "```$1\n$2")}
                       </ReactMarkdown>
                     </div>
                         
@@ -2124,260 +2219,181 @@ const CoursePlayer = () => {
           <div
             className={`${
               isIdeOpen ? "" : "hidden"
-            }  lg:col-span-4 flex flex-col gap-2`}
+            } lg:col-span-4 flex flex-col gap-2 h-full min-h-0`} 
           >
-            <div className="max-h-133 flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
+            <div className="h-full min-h-150 max-h-160 flex flex-col bg-[#101010] border border-white/10 rounded-lg overflow-hidden transition-all duration-300 shadow-2xl">
+              
               {/* Header */}
-              <div className="px-5 py-2 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors">
+              <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-[#151515]  shrink-0">
                 <div className="flex items-center gap-3">
-                  <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
+                  <span className="text-[11px] font-black text-zinc-400 uppercase tracking-[0.2em]">
                     YOUR IDE
                   </span>
-                </div>
-                {/* <span className="text-[11px] font-bold text-zinc-400">
-                {JSON.parse(
-                  localStorage.getItem(
-                    `completed_videos_${data?.[activeIndex]?.playlist}`
-                  )
-                )?.length || courseData?.[0]?.completedVideos?.length
-                  ? JSON.parse(
-                      localStorage.getItem(
-                        `completed_videos_${data?.[activeIndex]?.playlist}`
-                      )
-                    )?.length - 1 ||
-                    courseData?.[0]?.completedVideos?.length - 1
-                  : courseData?.[0]?.completedVideos?.length - 1}{" "}
-                / {data?.length} Completed
-              </span> */}
-              </div>
-
-              {/* Body */}
-              <div
-                className={`grid transition-[grid-template-rows] duration-500 ease-in-out `}
-              >
-                <div className="overflow-hidden ">
-                  {/* <div className="px-4 mb-2">
-                  <span className="text-[11px] font-bold text-zinc-400">
-                    Showing 
-                {JSON.parse(
-                  localStorage.getItem(
-                    `completed_videos_${data?.[activeIndex]?.playlist}`
-                  )
-                )?.length || courseData?.[0]?.completedVideos?.length
-                  ? JSON.parse(
-                      localStorage.getItem(
-                        `completed_videos_${data?.[activeIndex]?.playlist}`
-                      )
-                    )?.length - 1 ||
-                    courseData?.[0]?.completedVideos?.length - 1
-                  : courseData?.[0]?.completedVideos?.length - 1}{" "}
-                / {data?.length} Completed
-              </span>
-                </div> */}
-                  {/* Scrollable Area */}
-                  <div className="p-3 md:pb-28 space-y-2 max-h-90 md:max-h-150 overflow-y-auto custom-scrollbar hover:pr-2">
-                    {data.slice(0, activeIndex + 50).map((video, index) => (
-                      <div
-                        onClick={() => {
-                          setActive(index);
-                        }}
-                        
-                        className={`
-              group flex items-center gap-4 p-3 rounded-xl transition-all duration-200 cursor-pointer border
-              ${
-                activeIndex === index
-                  ? ` ${
-                      (JSON.parse(
-                        localStorage.getItem(
-                          `video_${data[index].videoId}_progress`
-                        )
-                      )?.completed || data?.[index]?.completed) === true
-                        ? "bg-green-500/5 border-green-500/20"
-                        : "bg-[#2563EB]/5 border-[#2563EB]/20"
-                    }`
-                  : "bg-transparent border-transparent hover:bg-white/5"
-              }
-            `}
-                        //  : `${completedVideos.filter((num) => num===index).length === 0 ? 'bg-green-500/5 border-green-500/20 text-zinc-700':'bg-transparent border-transparent hover:bg-white/5' }`
-                      >
-                        {/* Status Icon */}
-                        <div
-                          className={`
-                w-8 h-8 rounded-md flex items-center justify-center shrink-0 transition-transform duration-500 
-                ${
-                  activeIndex === index
-                    ? `${
-                        (JSON.parse(
-                          localStorage.getItem(
-                            `video_${data[index].videoId}_progress`
-                          )
-                        )?.completed || data?.[index]?.completed) === true
-                          ? "bg-green-500/80"
-                          : "bg-[#2563EB]"
-                      } text-black `
-                    : `bg-transparent text-zinc-700 border  ${
-                        (JSON.parse(
-                          localStorage.getItem(
-                            `video_${data[index].videoId}_progress`
-                          )
-                        )?.completed || data?.[index]?.completed) === true
-                          ? "border-green-500/50"
-                          : "border-white/5"
-                      }`
-                }
-                
-              `}
-                        >
-                          {activeIndex === index ? (
-                            <Play size={14} fill="black" />
-                          ) : (
-                            <span className="text-[10px] font-bold ">
-                              {(JSON.parse(
-                                localStorage.getItem(
-                                  `video_${data[index].videoId}_progress`
-                                )
-                              )?.completed || data?.[index]?.completed) ===
-                              true ? (
-                                <div className="text-green-500">
-                                  <SquareCheckBig size={14} />
-                                </div>
-                              ) : (
-                                index + 1
-                              )}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Video Thumbnail */}
-                        <div className="shrink-0 relative rounded-md overflow-hidden border border-white/10 w-20 h-11 bg-zinc-900">
-                          <img
-                          key={index}
-                            src={video.thumbnail}
-                            alt={video.title}
-                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 grayscale-[0.3] group-hover:grayscale-0"
-                          />
-                        </div>
-
-                        {/* Text Info */}
-                        <div className="flex-1 min-w-0">
-                          <h4
-                            className={`text-sm font-bold mb-1 leading-tight truncate ${
-                              activeIndex === index
-                                ? "text-white"
-                                : "text-zinc-400 group-hover:text-zinc-200"
-                            }`}
-                          >
-                            {video.title}
-                          </h4>
-                          <div className="flex items-center gap-2">
-                            <Clock
-                              size={10}
-                              className={
-                                activeIndex === index
-                                  ? "text-[#2563EB]"
-                                  : "text-zinc-600"
-                              }
-                            />
-                            <span
-                              className={`text-[11px] font-medium ${
-                                activeIndex === index
-                                  ? "text-[#2563EB]"
-                                  : "text-zinc-600"
-                              }`}
-                            >
-                              {video.duration
-                                .replace("PT", "")
-                                .replace("H", ":")
-                                .replace("M", ":")
-                                .replace("S", "")}
-                            </span>
-                          </div>
-                          <div className="flex gap-2">
-                            <div
-                              className={`${
-                                JSON.parse(
-                                  localStorage.getItem(
-                                    `video_${data[index].videoId}_progress`
-                                  )
-                                )?.progressTime || data?.[index]?.progressTime
-                                  ? ""
-                                  : "hidden"
-                              } w-full h-1 bg-zinc-800/50 rounded-full mt-2 overflow-hidden`}
-                            >
-                              <div
-                                className={`h-full ${
-                                  (JSON.parse(
-                                    localStorage.getItem(
-                                      `video_${data[index].videoId}_progress`
-                                    )
-                                  )?.completed || data[index].completed) ===
-                                  true
-                                    ? "bg-green-500"
-                                    : "bg-[#2563EB]"
-                                }  rounded-full opacity-80`}
-                                style={{
-                                  width: `${
-                                    ((JSON.parse(
-                                      localStorage.getItem(
-                                        `video_${data[index].videoId}_progress`
-                                      )
-                                    )?.progressTime ||
-                                      data?.[index]?.progressTime) /
-                                      (JSON.parse(
-                                        localStorage.getItem(
-                                          `video_${data[index].videoId}_progress`
-                                        )
-                                      )?.duration ||
-                                        data[index].totalDuration)) *
-                                    100
-                                  }%`,
-                                }}
-                              ></div>
-                            </div>
-                            <span
-                              className={`text-[11px] font-medium ${
-                                activeIndex === index
-                                  ? "text-[#2563EB]"
-                                  : "text-zinc-600"
-                              }
-                            ${
-                              JSON.parse(
-                                localStorage.getItem(
-                                  `video_${data[index].videoId}_progress`
-                                )
-                              )?.progressTime || data?.[index]?.progressTime
-                                ? ""
-                                : "hidden"
-                            }
-                            `}
-                            >
-                              {`${Math.floor(
-                                ((JSON.parse(
-                                  localStorage.getItem(
-                                    `video_${data[index].videoId}_progress`
-                                  )
-                                )?.progressTime ||
-                                  data?.[index]?.progressTime) /
-                                  (JSON.parse(
-                                    localStorage.getItem(
-                                      `video_${data[index].videoId}_progress`
-                                    )
-                                  )?.duration || data[index].totalDuration)) *
-                                  100
-                              )}%`}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-
-                    {/* <div className="sticky bottom-0 h-8 bg-linear-to-t from-[#141414] to-transparent pointer-events-none z-10 -mb-3"></div> */}
+                  
+                  {/* Language Selector */}
+                  <div className="relative group flex items-center gap-2">
+                    <select
+                      value={ideLanguage}
+                      onChange={onLanguageChange}
+                      className="bg-[#3c3c3c] text-white text-xs rounded px-2 py-1 outline-none border border-transparent focus:border-blue-500 transition-all cursor-pointer"
+                    >
+                      <option value="javascript">JavaScript</option>
+                      <option value="python">Python</option>
+                      <option value="java">Java</option>
+                      <option value="cpp">C++</option>
+                    </select>
+                    <span className="text-[10px] text-zinc-500 font-mono pt-0.5">
+                        v{ideVersion}
+                    </span>
                   </div>
                 </div>
+
+                <div className="flex gap-2">
+                   <button 
+                     onClick={runCode}
+                     disabled={isRunning}
+                     className={`flex items-center gap-1.5 px-3 py-1 text-white text-xs font-semibold rounded transition-colors ${
+                        isRunning ? "bg-zinc-600 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 cursor-pointer"
+                     }`}
+                   >
+                     {isRunning ? (
+                        <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
+                     ) : (
+                        <Play size={12} fill="white" />
+                     )}
+                     {isRunning ? "Running..." : "Run"}
+                   </button>
+                </div>
+              </div>
+
+              {/* SPLIT LAYOUT CONTAINER */}
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                
+                {/* 1. Code Editor */}
+                <div className="h-[65%] relative border-b border-white/10 overflow-hidden">
+                  <Editor
+                    height="100%"
+                    theme="vs-dark"
+                    language={ideLanguage}
+                    value={ideCode}
+                    onChange={(value) => setIdeCode(value)}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: 14,
+                      scrollBeyondLastLine: true,
+                      automaticLayout: true,
+                      padding: { top: 16, bottom: 16 },
+                      fontFamily: "'Fira Code', 'Consolas', monospace",
+                    }}
+                    loading={
+                      <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+                        Loading Editor...
+                      </div>
+                    }
+                  />
+                </div>
+                
+                {/* 2. Bottom Panel (Output + Input) */}
+                <div className="h-[35%] bg-[#151515] flex flex-col">
+                   
+                   {/* Tabs Header */}
+                   <div className="flex items-center border-b border-white/10 bg-[#252526] px-4">
+                      <button 
+                        onClick={() => setActiveTab("output")}
+                        className={`text-[11px] font-bold uppercase tracking-wider py-2 mr-6 border-b-2 transition-colors ${
+                            activeTab === "output" ? "border-blue-500 text-white" : "border-transparent text-zinc-500 hover:text-zinc-300"
+                        }`}
+                      >
+                        Output
+                      </button>
+                      <button 
+                        onClick={() => setActiveTab("input")}
+                        className={`text-[11px] font-bold uppercase tracking-wider py-2 border-b-2 transition-colors ${
+                            activeTab === "input" ? "border-blue-500 text-white" : "border-transparent text-zinc-500 hover:text-zinc-300"
+                        }`}
+                      >
+                        Input
+                      </button>
+                      
+                      <div className="flex-1" />
+                      
+                      {activeTab === "output" && (
+                        <button 
+                            onClick={() => setOutput([])} 
+                            className="text-[10px] text-zinc-500 hover:text-white transition-colors"
+                        >
+                            Clear
+                        </button>
+                      )}
+                   </div>
+                   
+                   {/* Panel Body */}
+                   <div className="flex-1 p-4 overflow-y-auto custom-scrollbar font-mono text-sm">
+                     
+                     {/* OUTPUT VIEW */}
+                     {activeTab === "output" && (
+                        <div className="text-zinc-300 whitespace-pre-wrap">
+                            {output.length > 0 ? (
+                                output.map((line, idx) => (
+                                    <div key={idx} className="mb-0.5 break-all">{line}</div>
+                                ))
+                            ) : (
+                                <div className="text-zinc-600 italic text-xs">
+                                    Click 'Run' to execute code.
+                                </div>
+                            )}
+                        </div>
+                     )}
+
+                     {/* INPUT VIEW */}
+                     {activeTab === "input" && (
+                        <textarea
+                            value={userInput}
+                            onChange={(e) => setUserInput(e.target.value)}
+                            placeholder="Enter input for your program (eg- 10 20)"
+                            className="w-full h-full bg-transparent text-zinc-300 resize-none outline-none placeholder:text-zinc-700"
+                            spellCheck={false}
+                        />
+                     )}
+
+                   </div>
+                </div>
+
               </div>
             </div>
           </div>
-          
+          {/* excali draw */}
+          {initialDrawData ? <div
+            className={`${
+              isExcaliOpen ? "" : "hidden"
+            } lg:col-span-4 flex flex-col gap-2`}
+          >
+            <div className="w-full h-full min-h-150 max-h-160 flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
+              
+              {/* Header */}
+              <div className="px-5 py-2 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0">
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
+                    WHITEBOARD
+                  </span>
+                </div>
+              </div>
+
+              {/* Body: Excalidraw Wrapper */}
+              <div className="flex-1 w-full relative bg-[#1e1e1e] overflow-hidden"> 
+                <div className="absolute inset-0 w-full h-full">
+                  <Excalidraw 
+                    theme="dark" 
+                    onChange={handleDrawChange}
+                    initialData={initialDrawData}
+                  >
+                    <WelcomeScreen />
+                    </Excalidraw>
+                </div>
+
+              </div>
+            </div>
+          </div>:''}
         </div>
       </div>
     </div>

@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@ai-sdk/groq": "^3.0.10",
+    "@excalidraw/excalidraw": "^0.18.0",
+    "@monaco-editor/react": "^4.7.0",
     "@nanostores/react": "github:ai/react",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.1.18",
@@ -23,6 +25,7 @@
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
     "react-player": "^3.4.0",
+    "react-resizable-panels": "^4.4.2",
     "react-router-dom": "^7.11.0",
     "remark-gfm": "^4.0.1",
     "tailwindcss": "^4.1.18",

@@ -1,15 +1,14 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
 @import "tailwindcss";
 
-
 body {
   font-family: 'Inter', sans-serif;
 }
 
 :root {
-  --left-face: #9E2A26;   /* Deep Brick Red (was #D53A33) */
-  --right-face: #B3780E;  /* Deep Amber (was #E79C10) */
-  --top-face: #14686E;    /* Deep Teal (was #1d9099) */
+  --left-face: #9E2A26;   /* Deep Brick Red */
+  --right-face: #B3780E;  /* Deep Amber */
+  --top-face: #14686E;    /* Deep Teal */
 
   --scale: 1;
   --duration: 3s;
@@ -30,23 +29,23 @@ body {
   animation: cube-anim var(--duration) var(--timing-function) infinite;
 }
 
-.right {
+.cube .right {
   background: var(--right-face);
   transform: rotate(-30deg) skewX(-30deg) translate(49px, 65px) scaleY(0.86);
 }
 
-.left {
+.cube .left {
   background: var(--left-face);
   transform: rotate(90deg) skewX(-30deg) scaleY(0.86) translate(25px, -50px);
 }
 
-.top {
+.cube .top {
   background: var(--top-face);
   transform: rotate(210deg) skew(-30deg) translate(-75px, -22px) scaleY(0.86);
   z-index: 2;
 }
 
-.face {
+.cube .face {
   height: 50px;
   width: 50px;
   position: absolute;
@@ -117,13 +116,8 @@ body {
 }
 
 @keyframes grid-move {
-  0% {
-    background-position: 0 0;
-  }
-  100% {
-  
-    background-position: 10px 10px; 
-  }
+  0% { background-position: 0 0; }
+  100% { background-position: 10px 10px; }
 }
 
 /* Width */
@@ -146,3 +140,5 @@ body {
 .animate-grid {
   animation: grid-move 3s linear infinite;
 }
+
+
