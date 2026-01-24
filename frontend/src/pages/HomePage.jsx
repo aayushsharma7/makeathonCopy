@@ -22,7 +22,7 @@ const HomePage = () => {
 
   const checkAuth = async () => {
     try {
-      const responsePost = await axios.get(`http://localhost:3000/auth/check`, {
+      const responsePost = await axios.get(`${import.meta.env.VITE_API_URL}/auth/check`, {
         withCredentials: true,
       });
       console.log(responsePost.data);
@@ -45,7 +45,7 @@ const HomePage = () => {
 
   const getData = async () => {
     try {
-      const data = await axios.get(`http://localhost:3000/course`, {
+      const data = await axios.get(`${import.meta.env.VITE_API_URL}/course`, {
         withCredentials: true,
       });
       if (data.status === 200) {

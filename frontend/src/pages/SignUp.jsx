@@ -15,7 +15,7 @@ const SignUp = () => {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const checkAuth = async () => {
       try {
-        const responsePost = await axios.get(`http://localhost:3000/auth/check`, {
+        const responsePost = await axios.get(`${import.meta.env.VITE_API_URL}/auth/check`, {
           withCredentials: true,
         });
         if (responsePost.data.code === 200) {
@@ -51,7 +51,7 @@ const SignUp = () => {
             email,
             password
         }
-        const apiRes = await axios.post('http://localhost:3000/auth/signup',payload);
+        const apiRes = await axios.post(`${import.meta.env.VITE_API_URL}/auth/signup`,payload);
         setResp(apiRes);
         console.log(apiRes.data.code, apiRes.data.message);
         if(apiRes?.data?.code === 200){

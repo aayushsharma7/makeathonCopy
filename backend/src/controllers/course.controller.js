@@ -188,7 +188,9 @@ export const getAi = async (req,res) => {
         });
         let rawTranscript;
         if(checkIfExists.length===0){
-            rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoId}`);
+            rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoId}`,{
+                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            });
             const newAddTs = new Transcript({
                 videoId,
                 transcript: rawTranscript

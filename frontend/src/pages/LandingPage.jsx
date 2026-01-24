@@ -7,7 +7,7 @@ const LandingPage = () => {
 
   const checkAuth = async () => {
     try {
-      const responsePost = await axios.get(`http://localhost:3000/auth/check`, {
+      const responsePost = await axios.get(`${import.meta.env.VITE_API_URL}/auth/check`, {
         withCredentials: true,
       });
       if (responsePost.data.code === 200) {

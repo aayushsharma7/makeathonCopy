@@ -27,7 +27,7 @@ const Navbar = () => {
 
   const checkAuth = async () => {
     try {
-      const responsePost = await axios.get(`http://localhost:3000/auth/check`, {
+      const responsePost = await axios.get(`${import.meta.env.VITE_API_URL}/auth/check`, {
         withCredentials: true,
       });
       if (responsePost.data.code === 200) {
@@ -50,7 +50,7 @@ const Navbar = () => {
   const handleLogout = async () => {
     if (isLoggedIn) {
       const apiRes = await axios.post(
-        "http://localhost:3000/auth/logout",
+        `${import.meta.env.VITE_API_URL}/auth/logout`,
         {},
         {
           withCredentials: true,
@@ -73,11 +73,11 @@ const Navbar = () => {
     <>
       <nav
         className={`fixed z-50 transition-all duration-500 ease-in-out flex justify-center items-start 
-          ${
-            isScrolled
-              ? "top-5 left-0 right-0 md:px-5"
-              : "top-0 left-0 right-0 md:px-10"
-          }
+        ${
+          isScrolled
+            ? "top-5 left-0 right-0 md:px-5"
+            : "top-0 left-0 right-0 md:px-10"
+        }
         `}
       >
         <div
@@ -237,10 +237,10 @@ const Navbar = () => {
             </button>
           </div>
 
-          {/* --- Mobile Menu Dropdown --- */}
+          {/* --- Mobile Menu Dropdown (UPDATED) --- */}
           <div
             className={`
-              absolute top-full right-0 mt-4 w-64 p-4 
+              absolute top-full right-0  w-64 p-4 mr-6 
               bg-[#0a0a0a] border border-white/10 rounded-2xl 
               flex flex-col gap-2 shadow-2xl origin-top-right transition-all duration-300
               ${
@@ -250,19 +250,71 @@ const Navbar = () => {
               }
             `}
           >
-            {["Features", "Pricing", "Blog", "Contact"].map((item) => (
-              <a
-                key={item}
-                href="#"
-                className="px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors"
+            {/* Mobile Nav Links */}
+            {[
+              { name: "Home", path: "/" },
+              { name: "Create", path: "/create" },
+              { name: "Courses", path: "/courses" },
+              { name: "Profile", path: "/profile" },
+            ].map((item, idx) => (
+              <Link
+                key={idx}
+                to={item.path}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors ${
+                  !isLoggedIn ? "hidden" : ""
+                }`}
               >
-                {item}
-              </a>
+                {item.name}
+              </Link>
             ))}
-            <div className="h-px bg-white/10 my-1" />
-            <button className="w-full py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors">
-              Try for free
-            </button>
+
+            {/* Mobile Auth Buttons */}
+            <div className="" />
+            
+            {isLoggedIn ? (
+              <button
+                onClick={() => {
+                  handleLogout();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full py-2.5 text-sm font-semibold text-red-400 hover:bg-red-500/10 rounded-xl transition-colors flex items-center justify-center gap-2"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" x2="9" y1="12" y2="12" />
+                </svg>
+                Logout
+              </button>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <Link
+                  to="/login"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="w-full text-center py-2 text-sm font-semibold text-white border border-white/20 rounded-xl hover:bg-white/5 transition-colors"
+                >
+                  Login
+                </Link>
+                <Link
+                  to="/signup"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="w-full text-center py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors"
+                >
+                  Get Started
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </nav>

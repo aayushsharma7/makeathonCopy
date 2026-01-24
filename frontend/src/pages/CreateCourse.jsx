@@ -29,7 +29,7 @@ const CreateCourse = () => {
   const checkAuth = async () => {
     try {
       const responsePost = await axios.get(
-        `http://localhost:3000/auth/check`, {withCredentials: true}
+        `${import.meta.env.VITE_API_URL}/auth/check`, {withCredentials: true}
       );
       if(responsePost.data.code === 200){
         setIsLoggedIn(true);
@@ -51,7 +51,7 @@ const CreateCourse = () => {
   const backendResponse = async (payload) => {
     try {
       const responsePost = await axios.post(
-        `http://localhost:3000/course/create`,
+        `${import.meta.env.VITE_API_URL}/course/create`,
         payload,
         {withCredentials: true}
       );

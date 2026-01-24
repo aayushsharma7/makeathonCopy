@@ -1,6 +1,5 @@
 import React from 'react'
 import { BookOpen, Clock, Trophy, Settings, Share2, Flame } from 'lucide-react'
-
 const Profile = () => {
   // Mock Data for Stats
   const stats = [

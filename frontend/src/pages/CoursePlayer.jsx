@@ -87,7 +87,7 @@ const CoursePlayer = () => {
 
   const checkAuth = async () => {
     try {
-      const responsePost = await axios.get(`http://localhost:3000/auth/check`, {
+      const responsePost = await axios.get(`${import.meta.env.VITE_API_URL}/auth/check`, {
         withCredentials: true,
       });
       if (responsePost.data.code === 200) {
@@ -129,13 +129,13 @@ const CoursePlayer = () => {
   const getData = async () => {
     try {
       const apiData = await axios.get(
-        `http://localhost:3000/course/data/${id.split("}")[0]}`,
+        `${import.meta.env.VITE_API_URL}/course/data/${id.split("}")[0]}`,
         {
           withCredentials: true,
         }
       );
       const courseApiData = await axios.get(
-        `http://localhost:3000/course/getCourse/${id.split("}")[0]}`,
+        `${import.meta.env.VITE_API_URL}/course/getCourse/${id.split("}")[0]}`,
         {
           withCredentials: true,
         }
@@ -162,7 +162,7 @@ const CoursePlayer = () => {
   const getSummaryData = async () => {
     try {
       const res = await axios.post(
-        `http://localhost:3000/course/generate/summary`,
+        `${import.meta.env.VITE_API_URL}/course/generate/summary`,
         {
           videoId: data?.[activeIndex]?.videoId,
           title: data?.[activeIndex]?.title,
@@ -182,7 +182,7 @@ const CoursePlayer = () => {
   const getProblemsData = async () => {
     try {
       const res = await axios.post(
-        `http://localhost:3000/course/generate/problems`,
+        `${import.meta.env.VITE_API_URL}/course/generate/problems`,
         {
           videoId: data?.[activeIndex]?.videoId,
           title: data?.[activeIndex]?.title,
@@ -210,7 +210,7 @@ const CoursePlayer = () => {
   const getNotesData = async () => {
     try {
       const notesApiData = await axios.get(
-        `http://localhost:3000/course/notes/${data?.[activeIndex]?._id}`,
+        `${import.meta.env.VITE_API_URL}/course/notes/${data?.[activeIndex]?._id}`,
         {
           withCredentials: true,
         }
@@ -233,7 +233,7 @@ const CoursePlayer = () => {
     try {
       // setCurrentVideoNotes((prev) => ([...prev].filter((e) => e.noteIndex !== noteIdx+1)));
       const apiRes = await axios.post(
-        "http://localhost:3000/course/update/video/notes/delete",
+        `${import.meta.env.VITE_API_URL}/course/update/video/notes/delete`,
         {
           videoId: data?.[activeIndex]?._id,
           noteId,
@@ -267,7 +267,7 @@ const CoursePlayer = () => {
     e.preventDefault();
     setNotesLoading(true);
     const apiRes = await axios.post(
-      "http://localhost:3000/course/update/video/notes",
+      `${import.meta.env.VITE_API_URL}/course/update/video/notes`,
       {
         videoId: data?.[activeIndex]?._id,
         newNote: {
@@ -324,7 +324,7 @@ const CoursePlayer = () => {
         const end = Math.floor(currentTime) + 60;
 
         const resp = await axios.post(
-          "http://localhost:3000/course/ai",
+          `${import.meta.env.VITE_API_URL}/course/ai`,
           {
             messages: newMessages.slice(-6),
             videoId: data?.[activeIndex]?.videoId,
@@ -678,7 +678,7 @@ const CoursePlayer = () => {
       if (currentStatus.courseId && currentStatus.videoId) {
         try {
           const courseApiRes = await axios.post(
-            `http://localhost:3000/course/update/course`,
+            `${import.meta.env.VITE_API_URL}/course/update/course`,
             {
               completed_videos: currentStatus.completedVideos,
               last_video_played: currentStatus.lastVideoPlayed,
@@ -687,7 +687,7 @@ const CoursePlayer = () => {
             { withCredentials: true }
           );
           const videoApiRes = await axios.post(
-            `http://localhost:3000/course/update/video`,
+            `${import.meta.env.VITE_API_URL}/course/update/video`,
             {
               progress_time: currentStatus.progressTime,
               duration: currentStatus.duration,

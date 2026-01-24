@@ -16,6 +16,7 @@
     "@tailwindcss/vite": "^4.1.18",
     "ai": "^6.0.39",
     "axios": "^1.13.2",
+    "dotenv": "^17.2.3",
     "lucide-react": "^0.562.0",
     "plyr": "^3.8.4",
     "react": "^19.2.0",
