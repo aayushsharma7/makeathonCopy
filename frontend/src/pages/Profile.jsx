@@ -1,31 +1,146 @@
 import React from 'react'
 import { BookOpen, Clock, Trophy, Settings, Share2, Flame } from 'lucide-react'
+import { useState , useEffect } from 'react';
+import axios from "axios";
+
 const Profile = () => {
   // Mock Data for Stats
+  const [user , setUser] = useState(null);
+  const [coursesCreated, setCoursesCreated] = useState(0);
+  const [hoursLearned, setHoursLearned] = useState(0);
+  const [completionRate, setCompletionRate] = useState(0);
+
+
+
+
+const [streak, setStreak] = useState(0);
+
+  useEffect(() => {
+  if (user) {
+    const currentStreak = calculateStreak();
+    setStreak(currentStreak);
+  }
+}, [user]);
+
+  // to calculate streak
+  const calculateStreak = () => {
+  if (!user) return 0;
+
+  let streak = 0;
+  let currentDate = new Date(); 
+
+  while (true) {
+    const dateKey = currentDate.toDateString(); 
+    
+    if (localStorage.getItem(dateKey)) {
+      streak++;
+      
+      currentDate.setDate(currentDate.getDate() - 1);
+    } else {
+      break; 
+    }
+  }
+  return streak;
+};
+
+//courses created 
+useEffect(() => {
+  if (!user){
+    return;
+  }
+  const getData = async () => {
+    const res = await axios.get(
+      "http://localhost:3000/auth/stats",
+      { withCredentials: true }
+    );
+    setCoursesCreated(res.data.coursesCreated);
+    setHoursLearned(res.data.hoursLearned);
+    setCompletionRate(res.data.completionRate);
+    
+  };
+  getData();
+},[user]);
+
+  
   const stats = [
-    { label: 'Courses Created', value: '12', icon: BookOpen, color: 'text-blue-400' },
-    { label: 'Hours Learned', value: '48.5', icon: Clock, color: 'text-amber-400' },
-    { label: 'Completion Rate', value: '85%', icon: Trophy, color: 'text-emerald-400' },
-    { label: 'Current Streak', value: '7 Days', icon: Flame, color: 'text-orange-500' },
+    { label: 'Courses Created', value: coursesCreated, icon: BookOpen, color: 'text-blue-400' },
+    { label: 'Hours Learned', value:`${hoursLearned} hrs`, icon: Clock, color: 'text-amber-400' },
+    { label: 'Completion Rate', value:`${completionRate}%`, icon: Trophy, color: 'text-emerald-400' },
+    { label: 'Current Streak', value:`${streak} days`, icon: Flame, color: 'text-orange-500' },
   ]
 
   // Mock Data for Heatmap (364 days for a full grid look)
   // 0 = empty, 1-4 = intensity levels
-  const generateHeatmapData = () => {
-    return Array.from({ length: 364 }, () => Math.floor(Math.random() * 5)); 
-  };
   
-  const heatmapData = generateHeatmapData();
+  
 
-  const getHeatmapColor = (level) => {
+  
+  // const heatmapData = generateHeatmapData();
+
+  
+  // for profile data
+  
+  useEffect(() => {    
+  const fetchUser = async () => {
+    try {
+      const res = await axios.get(
+        "http://localhost:3000/auth/check",
+        { withCredentials: true }
+      );
+      setUser(res.data.info);
+    } catch (err) {
+      console.log("User not logged in");
+    }
+  };
+
+  fetchUser();
+}, []);
+
+useEffect(() => {
+  if (user) {
+    const todayKey = new Date().toDateString();
+    localStorage.setItem(todayKey, "active");
+  }
+}, [user]);
+
+const startOfYear = new Date(new Date().getFullYear(), 0, 1);
+
+const heatmapData = Array.from({ length: 364 }, (_, index) => {
+  if (!user) return 0;
+
+  const dateForIndex = new Date(startOfYear);
+  dateForIndex.setDate(startOfYear.getDate() + index);
+
+  if (localStorage.getItem(dateForIndex.toDateString())) {
+    return 1; // active day
+  }
+
+  return 0; // inactive day
+});
+
+
+
+const getHeatmapColor = (level) => {
     switch (level) {
-      case 1: return 'bg-blue-900/40';
-      case 2: return 'bg-blue-800/60';
-      case 3: return 'bg-blue-600';
-      case 4: return 'bg-blue-400';
+      case 1: return 'bg-blue-600';
       default: return 'bg-neutral-800/50';
     }
   };
+const experienceLevel=(hours)=>{
+  if(hours < 15) return "Beginner";
+  else if(hours>=15 && hours<=30) return "Intermediate";
+  else if(hours>30 && hours <=45) return "Advanced";
+  else return "Expert";
+}
+
+const getName=(name)=>{
+  if(!name) return '';
+  const initial=name.trim().split(" ");
+  if(initial.length==1) return initial[0][0].toUpperCase();
+  return(initial[0][0]+initial[1][0]).toUpperCase();
+}
+
+
 
   return (
     <div className="min-h-screen selection:bg-[#2563EB] selection:text-white relative text-gray-100 font-sans overflow-hidden">
@@ -53,16 +168,22 @@ const Profile = () => {
             {/* Avatar */}
             <div className="h-28 w-28 rounded-full p-1 bg-gradient-to-tr from-blue-600 to-amber-600">
                <div className="h-full w-full rounded-full bg-neutral-900 border-4 border-[#0a0a0a] flex items-center justify-center overflow-hidden">
-                  <span className="text-4xl font-bold text-gray-200">JD</span>
+                  <span className="text-4xl font-bold text-gray-200">{getName(user?.username)}</span>
                   {/* <img src="URL_HERE" alt="user" className="h-full w-full object-cover" /> */}
                </div>
             </div>
             
             <div>
-              <h1 className="text-4xl font-bold text-white mb-2">John Doe</h1>
-              <p className="text-gray-400 font-medium mb-3">Full Stack Developer • Student</p>
+              <h1 className="text-4xl font-bold text-white mb-2">
+                {user !== null ? user.username : "Loading..."}
+              </h1>
+              <p className="text-gray-400 font-medium mb-3">
+                {user !==null ? user.email : "Loading..."}
+              </p>
               <div className="flex items-center gap-2 justify-center md:justify-start">
-                 <span className="px-3 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-xs border border-blue-500/20 font-mono">PRO MEMBER</span>
+                 <span className="px-3 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-xs border border-blue-500/20 font-mono">
+                  {experienceLevel(hoursLearned)}
+                 </span>
                  <span className="text-xs text-gray-500">Joined Jan 2025</span>
               </div>
             </div>
@@ -97,14 +218,14 @@ const Profile = () => {
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-semibold text-white">Learning Activity</h2>
             <div className="flex items-center gap-2 text-xs text-gray-500">
-              <span>Less</span>
+              <span>Not Active</span>
               <div className="flex gap-1">
                 <div className="w-3 h-3 rounded-sm bg-neutral-800/50"></div>
-                <div className="w-3 h-3 rounded-sm bg-blue-900/40"></div>
+                {/* <div className="w-3 h-3 rounded-sm bg-blue-900/40"></div> */}
                 <div className="w-3 h-3 rounded-sm bg-blue-600"></div>
-                <div className="w-3 h-3 rounded-sm bg-blue-400"></div>
+                {/* <div className="w-3 h-3 rounded-sm bg-blue-400"></div> */}
               </div>
-              <span>More</span>
+              <span>Active</span>
             </div>
           </div>
 
