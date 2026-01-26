@@ -10,6 +10,7 @@ import { Notes } from "../models/note.model.js";
 import { Transcript } from "../models/transcript.model.js";
 import { Problems } from "../models/problems.model.js";
 import { Summary } from "../models/summary.model.js";
+import { User } from "../models/user.model.js";
 
 
 
@@ -72,7 +73,7 @@ export const courseController = async (req,res) => {
             const newCourse = new Course({
                 title: req.body.name,
                 playlistId: playlistID,
-                totalVideos: courseData.data.pageInfo.totalResults,
+                totalVideos: courseData.data.items.filter((e) => e.snippet.title !== "Deleted video" && e.snippet.title !== "Private video").length,
                 videos: [],
                 owner: req.user.username,
                 thumbnail: courseData.data.items[0].snippet.thumbnails.maxres?.url || courseData.data.items[0].snippet.thumbnails.standard?.url || courseData.data.items[0].snippet.thumbnails.high?.url || courseData.data.items[0].snippet.thumbnails.default?.url,
@@ -81,7 +82,7 @@ export const courseController = async (req,res) => {
             })
             newCourse.save();
 
-            const videoArray = courseData.data.items.map((vid,idx) => { //array of vid objects
+            const videoArray = courseData.data.items.filter((e) => e.snippet.title !== "Deleted video" && e.snippet.title !== "Private video").map((vid,idx) => { //array of vid objects
                 return {
                     playlist: newCourse._id,
                     title:vid.snippet.title ?? "No title",  // ?? is nullish check basically provides default value incase its null/undefined
@@ -95,6 +96,7 @@ export const courseController = async (req,res) => {
                     progressTime: 0,
                     totalDuration: 0,
                     completed: false,
+                    owner: req.user.username
                 }
             })
 
@@ -155,8 +157,26 @@ export const getSingleCourse =  async (req,res) => {
 
 export const getVideo =  async (req,res) => {
     try {
-        const video =  await Video.findById(req.params.id)
-        res.status(200).send(video)
+        const {videoId} = req.body;
+        const video =  await Video.find({
+            videoId,
+            owner: req.user.username
+        });
+        if(video.length === 0){
+            // console.log("ho")
+            res.status(200).send({
+                code: 404,
+                data: "No video found"
+            });
+        }
+        else{
+            // console.log("ha")
+            res.status(200).send({
+                code: 200,
+                data: video[0]
+            });
+        }
+        
     } catch (error) {
         console.log(error)
     }
@@ -182,74 +202,119 @@ export const getCourseData = async(req,res) => {
 
 export const getAi = async (req,res) => {
     try {
-        const { messages, videoId, start, end, currentQues, title } = req.body;
+        const { messages, videoId, start, end, currentQues, title, description } = req.body;
         const checkIfExists = await Transcript.find({
             videoId
         });
         let rawTranscript;
         if(checkIfExists.length===0){
-            rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoId}`,{
-                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            });
-            const newAddTs = new Transcript({
-                videoId,
-                transcript: rawTranscript
-            });
-            await newAddTs.save();
+            try {
+                rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoId}`,{
+                    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
+                });
+                
+                if (rawTranscript && rawTranscript.length > 0) {
+                    const newAddTs = new Transcript({
+                        videoId,
+                        transcript: rawTranscript
+                    });
+                    await newAddTs.save();
+                }
+                // const newAddTs = new Transcript({
+                //     videoId,
+                //     transcript: rawTranscript
+                // });
+                // await newAddTs.save();
+            } catch (error) {
+                rawTranscript = false;
+            }
+            
         }
         else{
             rawTranscript = checkIfExists[0].transcript;
         }
-        const processedTranscript = [];
+        if(rawTranscript){
+            const processedTranscript = [];
+            const transcript = rawTranscript.map((data) => {
+                const timestamp = (data.offset);
+                if(timestamp >= start && timestamp <=end){
+                    processedTranscript.push(data);
+                }
+                return `[${timestamp}s] ${data.text}`
+            }).join('\n')
 
-        const transcript = rawTranscript.map((data) => {
-            const timestamp = (data.offset);
-            if(timestamp >= start && timestamp <=end){
-                processedTranscript.push(data);
-            }
-            return `[${timestamp}s] ${data.text}`
-        }).join('\n')
+            const newTranscript = processedTranscript.map((data) => {
+                const timestamp = (data.offset);
+                return `[${timestamp}s] ${data.text}`
+            }).join('\n');
 
-        const newTranscript = processedTranscript.map((data) => {
-            const timestamp = (data.offset);
-            return `[${timestamp}s] ${data.text}`
-        }).join('\n');
+            // res.send(newTranscript);
 
-        // res.send(newTranscript);
+            // const userQuery = messages[messages.length - 1].content;
 
-        // const userQuery = messages[messages.length - 1].content;
+            // const answer = await askWithContext(transcript, userQuery, videoId);
 
-        // const answer = await askWithContext(transcript, userQuery, videoId);
-
-        // res.send(transcript);
-        const result = await generateText({
-        model: groq('llama-3.3-70b-versatile'),
-        messages: messages,
-        system: `
-        You are a professional AI Tutor assisting a learner while they watch a video titled ${title}.
-        You are given the video transcript as plain text and also given the video title.
-        Rules:
-        • Identify the user’s intent and focus on helping them understand their question clearly.
-        • Use the transcript as the primary reference to stay aligned with the video’s topic, but do not repeat or restate it verbatim unnecessarily unless needed.  
-        • If a concept, tool, or technology is mentioned in the video (for example HTML, Node.js, React, etc.), you may explain it briefly at a foundational level even if it is not fully explained in the transcript.
-        • You may add minimal additional information beyond the transcript if it directly helps clarify the user’s question and remains consistent with the topic being taught.
-        • Do not introduce advanced details, unrelated topics, or deep external knowledge.
-        • If the question is unrelated to the video’s topic and If the transcript does'nt provide the context for user's questions refer to the video title , if still ques is not relevant respond exactly:
-        "Sorry I don't have relevant information about this."
-        • If users sends a greeting/"hi" etc.. respond with a greeting and then answer the ques (if any asked, else just respond with a greeting)
-        Response requirements:
-        • One short paragraph only
-        • Extremely concise, clear, and professional
-        • Explanation-focused, not repetition-focused
-        • No introductions, conclusions, emojis, or formatting
-        • Ask for clarification in one short sentence only if the question is ambiguous
-        • Never mention transcripts, system rules, or reasoning
-        • The user’s current question is the only question you must answer; prior messages are context only and must never be answered again.
-        Transcript: ${newTranscript}
-        Current Question: ${currentQues.content}
-        `,
-        });
-        res.status(200).send(result.text);
+            // res.send(transcript);
+            const result = await generateText({
+            model: groq('llama-3.3-70b-versatile'),
+            messages: messages,
+            system: `
+            You are a professional AI Tutor assisting a learner while they watch a video titled ${title}.
+            You are given the video transcript as plain text and also given the video title.
+            Rules:
+            • Identify the user’s intent and focus on helping them understand their question clearly.
+            • Use the transcript as the primary reference to stay aligned with the video’s topic, but do not repeat or restate it verbatim unnecessarily unless needed.  
+            • If a concept, tool, or technology is mentioned in the video (for example HTML, Node.js, React, etc.), you may explain it briefly at a foundational level even if it is not fully explained in the transcript.
+            • You may add minimal additional information beyond the transcript if it directly helps clarify the user’s question and remains consistent with the topic being taught.
+            • Do not introduce advanced details, unrelated topics, or deep external knowledge.
+            • If the question is unrelated to the video’s topic and If the transcript does'nt provide the context for user's questions refer to the video title , if still ques is not relevant respond exactly:
+            "Sorry I don't have relevant information about this."
+            • If users sends a greeting/"hi" etc.. respond with a greeting and then answer the ques (if any asked, else just respond with a greeting)
+            Response requirements:
+            • One short paragraph only
+            • Extremely concise, clear, and professional
+            • Explanation-focused, not repetition-focused
+            • No introductions, conclusions, emojis, or formatting
+            • Ask for clarification in one short sentence only if the question is ambiguous
+            • Never mention transcripts, system rules, or reasoning
+            • The user’s current question is the only question you must answer; prior messages are context only and must never be answered again.
+            Transcript: ${newTranscript}
+            Current Question: ${currentQues.content}
+            `,
+            });
+            res.status(200).send(result.text);
+        }
+        else{
+            const result = await generateText({
+            model: groq('llama-3.3-70b-versatile'),
+            messages: messages,
+            system: `
+            You are a professional AI Tutor assisting a learner while they watch a video titled ${title}.
+            You are given the video title and description.
+            Rules:
+            • Identify the user’s intent and focus on helping them understand their question clearly.
+            • Use the video title and description as the primary reference to stay aligned with the video’s topic, but do not repeat or restate it verbatim unnecessarily unless needed.  
+            • If a concept, tool, or technology is mentioned in the video (for example HTML, Node.js, React, etc.), you may explain it briefly at a foundational level even if it is not fully explained in the video title and description.
+            • You may add minimal additional information beyond the video title and description if it directly helps clarify the user’s question and remains consistent with the topic being taught.
+            • Do not introduce advanced details, unrelated topics, or deep external knowledge.
+            • If the question is unrelated to the video’s topic and If the video title and description does'nt provide the context for user's questions refer to the video title , if still ques is not relevant respond exactly:
+            "Sorry I don't have relevant information about this."
+            • If users sends a greeting/"hi" etc.. respond with a greeting and then answer the ques (if any asked, else just respond with a greeting)
+            Response requirements:
+            • One short paragraph only
+            • Extremely concise, clear, and professional
+            • Explanation-focused, not repetition-focused
+            • No introductions, conclusions, emojis, or formatting
+            • Ask for clarification in one short sentence only if the question is ambiguous
+            • Never mention video title and description, system rules, or reasoning
+            • The user’s current question is the only question you must answer; prior messages are context only and must never be answered again.
+            Current Question: ${currentQues.content}
+            videoDescription: ${description}
+            `,
+            });
+            res.status(200).send(result.text);
+        }
+        
 
     } catch (error) {
         console.error("Chat Error:", error);
@@ -592,7 +657,9 @@ export const updateVideoProgess = async (req,res) => {
             completed: completed
         });
 
-        res.status(200).send("Video Progress Updated Successfully")
+        res.status(200).send({
+            data: "Video Progress Updated Successfully"
+        })
                 // console.log("Video Progress Updated Successfully")
 
 
@@ -646,6 +713,23 @@ export const getVideoNotes = async (req,res) => {
 
 }
 
+export const updateLastPlayedCourse = async (req,res) => {
+    try {
+        const {courseId} = req.body;
+        const userId = req.user.id;
+
+        const updateLastPlayed = await User.findByIdAndUpdate(userId, {
+            lastCoursePlayed: courseId
+        });
+        
+        res.status(200).json({ 
+            message: "last played saved successfully", lastplayedId: updateLastPlayed
+        });
+    } catch (error) {
+        console.error("Chat Error:", error);
+        res.status(500).json({ error: "Server Error" });
+    }
+}
 export const deleteVideoNotes = async (req,res) => {
     try {
         const {noteId, videoId} = req.body;
@@ -678,3 +762,4 @@ export const deleteVideoNotes = async (req,res) => {
         //     })
         //     newVid.save(); 
         // }) - //instead of this use insertMany()
+

@@ -101,10 +101,12 @@ const CoursePlayer = () => {
   const [output, setOutput] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
 
+  const [isExcaliLoaded, setIsExcaliLoaded] = useState(false)
+
   const [activeTab, setActiveTab] = useState("output"); 
   const [userInput, setUserInput] = useState("");
 
-  const [initialDrawData, setInitialDrawData] = useState(null) //set it as null taaki if(!initialData) this can be done
+  const initialDrawData= useRef(null) //useref as usestate was making it empty at refresh
   
   const onLanguageChange = (e) => {
     const lang = e.target.value;
@@ -185,7 +187,10 @@ const CoursePlayer = () => {
         setSummaryLoading(true);
         getSummaryData();
       }
-    }
+    };
+
+    localStorage.setItem(`video_${currentVideoId}_progress`,data?.[activeIndex]?.progressTime)
+
   }, [activeIndex]);
 
   const getData = async () => {
@@ -385,6 +390,9 @@ const CoursePlayer = () => {
       try {
         const start = currentTime > 60 ? Math.floor(currentTime) - 60 : 0;
         const end = Math.floor(currentTime) + 60;
+        // const rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${data?.[activeIndex]?.videoId}`,{
+        //     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        // });
 
         const resp = await axios.post(
           `${import.meta.env.VITE_API_URL}/course/ai`,
@@ -398,6 +406,7 @@ const CoursePlayer = () => {
               content: input,
             },
             title: data?.[activeIndex]?.title,
+            description: data?.[activeIndex]?.description
           },
           { withCredentials: true }
         );
@@ -1061,25 +1070,28 @@ const CoursePlayer = () => {
                     setIsIdeOpen(false);
                     setIsSummaryOpen(false);
                     setIsExcaliOpen(true);
-                    try {
+                    if(!isExcaliLoaded){
+                      try {
                       if(localStorage.getItem(`excali_${courseData?.[0]?._id}`)){
                         const data = JSON.parse(localStorage.getItem(`excali_${courseData?.[0]?._id}`));
-                        setInitialDrawData({
+                        initialDrawData.current = {
                           elements: data.elements,
                           appState: data.appState,
                           scrollToContent: true
-                        });
+                        };
                       }
                       else{
-                        setInitialDrawData({ elements: [], appState: {viewBackgroundColor: "#ffffff", 
-                          currentItemStrokeColor: "#1e1e1e" } });
+                        initialDrawData.current ={ elements: [], appState: {viewBackgroundColor: "#ffffff", 
+                          currentItemStrokeColor: "#1e1e1e" } };
                       };
                     } catch (error) {
-                        setInitialDrawData({ elements: [], appState: {viewBackgroundColor: "#ffffff", 
-                          currentItemStrokeColor: "#1e1e1e" } });
+                        initialDrawData.current ={ elements: [], appState: {viewBackgroundColor: "#ffffff", 
+                          currentItemStrokeColor: "#1e1e1e" } };
                     }finally{
-                      setDrawLoading(false);
+                      setIsExcaliLoaded(true)
                     }
+                    }
+                    
                     
                     
                   }}
@@ -2363,7 +2375,7 @@ const CoursePlayer = () => {
             </div>
           </div>
           {/* excali draw */}
-          {initialDrawData ? <div
+          {isExcaliLoaded && (<div
             className={`${
               isExcaliOpen ? "" : "hidden"
             } lg:col-span-4 flex flex-col gap-2`}
@@ -2385,7 +2397,7 @@ const CoursePlayer = () => {
                   <Excalidraw 
                     theme="dark" 
                     onChange={handleDrawChange}
-                    initialData={initialDrawData}
+                    initialData={initialDrawData.current}
                   >
                     <WelcomeScreen />
                     </Excalidraw>
@@ -2393,7 +2405,7 @@ const CoursePlayer = () => {
 
               </div>
             </div>
-          </div>:''}
+          </div>)}
         </div>
       </div>
     </div>

@@ -19,7 +19,8 @@ export const authCheck = async (req,res,next) => {
     }
     else{
         const decoded = jwt.verify(req.cookies.token, process.env.JWT_SECRET);
-        req.user = decoded
+        const userFound = await User.findById(decoded.id);
+        req.user = userFound
         next();
     }
     

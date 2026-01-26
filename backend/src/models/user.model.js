@@ -14,6 +14,9 @@ const userModel = new mongoose.Schema({
     password: {
         type: String,
         required: true
+    },
+    lastCoursePlayed: {
+        type: String
     }
     
 },{timestamps: true})

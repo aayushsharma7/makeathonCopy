@@ -27,7 +27,9 @@ app.use("/course",courseRoute);
 
 app.get('/',(req,res) => {
     res.send("working")
-})
+});
+
+
 
 
 app.listen(PORT, () => {

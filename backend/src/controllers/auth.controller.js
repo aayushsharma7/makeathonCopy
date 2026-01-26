@@ -73,7 +73,8 @@ export const loginController = async (req,res) => {
                     username: user[0].username,
                     email,
                     id: user[0]._id,
-                    createdAt: user[0].createdAt
+                    createdAt: user[0].createdAt,
+                    lastCoursePlayed: user[0].lastCoursePlayed
                 },process.env.JWT_SECRET,{expiresIn: '1d'})
                 res.cookie("token",token,{
                     httpOnly: true,

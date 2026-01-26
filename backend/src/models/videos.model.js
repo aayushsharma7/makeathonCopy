@@ -8,34 +8,39 @@ const videoModel = new mongoose.Schema({
     },
     title:{
         type: String,
-        required: true
+        required: true,
+        default: ""
     },
     description:{
         type: String,
-        required: true        
+        default: ""
     },
     channelId:{
         type: String,
-        required: true        
+        required: true,        
+        default: ""
     },
     channelTitle:{
         type: String,
-        required: true        
+        required: true,
+        default: ""        
     },
     thumbnail:{
         type: String,
+        default: ""
     },
     videoId:{
         type: String,
-        required: true  
+        required: true ,
+        default: "" 
     },
     duration:{
         type: String,
-        required:true
+        default: ""
     },
     progressTime: {
         type: Number,
-        default: 0
+        default: 0,
     },
     totalDuration: {
         type: Number,
@@ -48,7 +53,10 @@ const videoModel = new mongoose.Schema({
     notes:[{
         type: mongoose.Schema.Types.ObjectId,
         ref: "Notes",
-    }]
+    }],
+    owner: {
+        type: String,
+    }
 
 },{timestamps: true});
 

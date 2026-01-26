@@ -25,10 +25,13 @@ const HomePage = () => {
       const responsePost = await axios.get(`${import.meta.env.VITE_API_URL}/auth/check`, {
         withCredentials: true,
       });
-      console.log(responsePost.data);
+      // console.log(responsePost.data);
       if (responsePost.data.code === 200) {
         setIsLoggedIn(true);
         setInfor(responsePost.data.info);
+        // console.log(responsePost.data.info)
+        const lastPlayed = localStorage.getItem('last_course_played') || responsePost.data.info.lastCoursePlayed;
+        setLastCoursePlayed(lastPlayed);
       } else {
         setIsLoggedIn(false);
         navigate("/signup");
@@ -50,9 +53,9 @@ const HomePage = () => {
       });
       if (data.status === 200) {
         setCourses(data.data.reverse());
-        const lastPlayed = localStorage.getItem('last_course_played') || "none"
-        setLastCoursePlayed(lastPlayed);
-        console.log(data.data);
+        
+        
+        // console.log(data.data);
       }
     } catch (error) {
       console.log(error);
@@ -66,7 +69,7 @@ const HomePage = () => {
   useEffect(() => {
     
     getData();
-    console.log(courses);
+    // console.log(courses);
   }, []);
 
   const navigate = useNavigate();
@@ -74,6 +77,22 @@ const HomePage = () => {
   const goToCourse = (e, n) => {
     navigate(`/courses/${n}/${e}}`);
   };
+
+  const handleLastPlayedCourse = async (courseId) => {
+    try {
+      const apiRes = await axios.post(`${import.meta.env.VITE_API_URL}/course/update/lastplayedcourse`,{
+        courseId
+      },{
+        withCredentials: true
+      });
+
+      // console.log(apiRes.data?.lastplayedId);
+    } catch (error) {
+      console.log(error);
+    } finally{
+      localStorage.setItem(`last_course_played`, `${courseId}`)
+    }
+  }
 
   // const changeUser = () => {
   //     setUser('changed');
@@ -460,7 +479,8 @@ const HomePage = () => {
             <div
               key={idx}
               onClick={() => {
-                localStorage.setItem(`last_course_played`, `${course._id}`)
+                const courseId = course._id
+                handleLastPlayedCourse(courseId)
               }}
               className={`group ${
                 courses.length > 0 ? "" : "hidden"
