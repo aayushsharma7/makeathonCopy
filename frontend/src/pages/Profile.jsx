@@ -12,6 +12,13 @@ const Profile = () => {
   const [totalVideosCreated, setTotalVideosCreated] = useState(0);
   const [profileCopied, setProfileCopied] = useState(false)
 
+  const [tooltip, setTooltip] = useState({
+    visible: false,
+    x: 0,
+    y: 0,
+    date: ""
+  });
+
 
 
 const [streak, setStreak] = useState(0);
@@ -457,13 +464,33 @@ const getName=(name)=>{
             <div className="min-w-175">
               {/* Grid: 7 rows (days), flows column-wise */}
               <div className="grid grid-rows-7 grid-flow-col gap-0.75">
-                {heatmapData.map((level, i) => (
-                  <div 
+                {heatmapData.map((level, i) => {
+                    const dateForBlock = new Date(startOfYear);
+                    dateForBlock.setDate(startOfYear.getDate() + i);
+
+                return (
+                  <div
                     key={i}
-                    className={`w-3 h-3 rounded-xs ${getHeatmapColor(level)} hover:ring-1 hover:ring-white/50 transition-all cursor-pointer`}
-                    title={`Activity Level: ${level}`}
-                  />
-                ))}
+                    className={`w-3 h-3 rounded-[2px] ${getHeatmapColor(level)} hover:ring-1 hover:ring-white/50 transition-all cursor-pointer`}
+                    onMouseEnter={(e) =>
+                      setTooltip({
+                        visible: true,
+                         x: e.clientX,
+                        y: e.clientY,
+                        date: dateForBlock.toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        }),
+
+                      })
+                    }
+                    onMouseLeave={() =>
+                      setTooltip({ ...tooltip, visible: false })
+                    }
+                 />
+                );
+              })}
               </div>
               
               {/* Month Labels (Visual only) */}
@@ -474,6 +501,17 @@ const getName=(name)=>{
             </div>
           </div>
         </div>
+        {tooltip.visible && (
+          <div
+            className="fixed z-50 px-2 py-1 text-xs bg-black border border-neutral-700 rounded-md text-white pointer-events-none"
+            style={{
+              top: tooltip.y + 10,
+              left: tooltip.x + 10,
+            }}
+          >
+            {tooltip.date}
+          </div>
+        )}
 
       </div>
     </div>
