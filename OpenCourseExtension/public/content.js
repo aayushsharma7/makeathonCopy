@@ -1,10 +1,10 @@
 const checkAuth = async () => {
     try {
         const response = await chrome.runtime.sendMessage({ action: "CHECK_AUTH" });
-        if (response && response.success) {
+        if (response && response.success && response.data?.success) {
             console.log(response.data);
             
-            return response.data.code
+            return true
         } else {
             console.log("❌ Auth Failed:", response.error);
             return false
@@ -66,13 +66,16 @@ const updateVideo = async (dbVideoId, progressTime, duration) => {
 
 (async () => {
     const check = await checkAuth();
-    if(check === 200){
+    if(check){
         console.log(check);
         setInterval(async () => {
             const urlParams = new URLSearchParams(window.location.search);
             const videoId = urlParams.get('v');
             if(videoId){
-                videoElement = document.querySelector('video');
+                const videoElement = document.querySelector('video');
+                if(!videoElement){
+                    return;
+                }
                 if(!videoElement.paused){
                     console.log("hi", videoElement.currentTime, videoId);
                 }

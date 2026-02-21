@@ -27,6 +27,13 @@ const handleAuthCheck = async (sendResponse) => {
         credentials: 'include'
         });
         const data = await res.json(); //this is a promise (parsing of the resp);
+        if(!res.ok || !data?.success){
+            return sendResponse({ 
+                success: false, 
+                error: data?.message || "Auth check failed",
+                code: data?.code || res.status
+            });
+        }
         sendResponse({ 
             success: true, 
             data: data 
@@ -50,18 +57,18 @@ const handleVideoCheck = async (sendResponse,videoId) => {
         credentials: 'include'
         });
         const data = await res.json(); //this is a promise (parsing of the resp);
-        if(data.code === 404){
+        if(!res.ok || !data?.success){
             sendResponse({ 
                 success: false, 
-                data: data.data,
-                code: 404
+                data: data?.message || "No video found",
+                code: data?.code || res.status
             });
         }
         else{
             sendResponse({ 
                 success: true, 
-                data: data.data,
-                code: 200
+                data: data?.data,
+                code: data?.code || 200
             });
         }
         
@@ -87,9 +94,15 @@ const updateVideoProgress = async (sendResponse,videoId, progressTime, duration)
         credentials: 'include'
         });
         const data = await res.json(); //this is a promise (parsing of the resp);
+        if(!res.ok || !data?.success){
+            return sendResponse({ 
+                success: false, 
+                error: data?.message || "Failed to update video"
+            });
+        }
         sendResponse({ 
             success: true, 
-            data: data.data
+            data: data?.data
         });
         
     } catch (error) {
