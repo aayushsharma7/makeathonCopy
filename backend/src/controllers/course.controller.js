@@ -11,6 +11,9 @@ import { Transcript } from "../models/transcript.model.js";
 import { Problems } from "../models/problems.model.js";
 import { Summary } from "../models/summary.model.js";
 import { User } from "../models/user.model.js";
+import { Quiz } from "../models/quiz.model.js";
+import { QuizAttempt } from "../models/quizAttempt.model.js";
+import { QuizReviewSchedule } from "../models/quizReviewSchedule.model.js";
 import { sendError, sendSuccess } from "../utils/apiResponse.js";
 
 
@@ -158,6 +161,449 @@ const getDurationDisplay = (isoDuration = "") => {
     return duration.endsWith(":") ? `${duration}00` : duration;
 }
 
+const normalizeSubject = (rawSubject = "") => {
+    const safe = `${rawSubject || ""}`.trim().toLowerCase();
+    if(!safe){
+        return "general";
+    }
+    return safe.replace(/\s+/g, "-");
+}
+
+const inferSubjectFromText = (text = "") => {
+    const source = `${text || ""}`.toLowerCase();
+    const map = [
+        { subject: "dsa", keys: ["dsa", "algorithm", "algorithms", "data structure", "leetcode", "graph", "dp", "recursion"] },
+        { subject: "electronics", keys: ["electronics", "vlsi", "digital", "analog", "microcontroller", "arduino", "embedded", "circuit"] },
+        { subject: "ai-ml", keys: ["ai", "ml", "machine learning", "deep learning", "neural", "llm", "nlp", "computer vision"] },
+        { subject: "web-development", keys: ["react", "node", "express", "javascript", "frontend", "backend", "full stack", "web"] },
+        { subject: "core-cs", keys: ["os", "operating system", "dbms", "cn", "computer networks", "oop", "system design"] }
+    ];
+
+    for(const bucket of map){
+        if(bucket.keys.some((key) => source.includes(key))){
+            return bucket.subject;
+        }
+    }
+    return "general";
+}
+
+const findClosestExistingSubject = (candidate = "", existingSubjects = [], contextText = "") => {
+    const normalizedCandidate = normalizeSubject(candidate);
+    const list = Array.from(new Set((existingSubjects || []).map((item) => normalizeSubject(item)).filter(Boolean)));
+    if(!list.length){
+        return normalizedCandidate;
+    }
+    if(list.includes(normalizedCandidate)){
+        return normalizedCandidate;
+    }
+
+    const candidateTokens = new Set(normalizedCandidate.split("-").filter(Boolean));
+    for(const subject of list){
+        const subjectTokens = subject.split("-").filter(Boolean);
+        const overlap = subjectTokens.some((token) => candidateTokens.has(token));
+        if(overlap){
+            return subject;
+        }
+    }
+
+    const context = `${contextText || ""}`.toLowerCase();
+    for(const subject of list){
+        const subjectText = subject.replace(/-/g, " ");
+        if(context.includes(subjectText)){
+            return subject;
+        }
+    }
+
+    return normalizedCandidate;
+}
+
+const resolveAutoSubjectForUser = async ({ owner = "", title = "", personalization = {}, knownTopics = [] }) => {
+    const mergedText = [
+        title,
+        personalization?.targetGoal || "",
+        personalization?.priorExposure || "",
+        Array.isArray(knownTopics) ? knownTopics.join(" ") : `${knownTopics || ""}`
+    ].join(" ");
+
+    const inferred = inferSubjectFromText(mergedText);
+    const existingCourses = await Course.find({ owner }).select("subject");
+    const existingSubjects = existingCourses.map((item) => item.subject || "general");
+
+    return findClosestExistingSubject(inferred, existingSubjects, mergedText);
+}
+
+const parseIsoDurationToSeconds = (isoDuration = "PT0S") => {
+    const match = isoDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    if(!match){
+        return 0;
+    }
+    const hours = parseInt(match[1] || "0", 10);
+    const minutes = parseInt(match[2] || "0", 10);
+    const seconds = parseInt(match[3] || "0", 10);
+    return (hours * 3600) + (minutes * 60) + seconds;
+}
+
+const getDateKeyUTC = (date = new Date()) => {
+    return new Date(date).toISOString().slice(0, 10);
+}
+
+const upsertUserDailyActivity = async ({ userId, courseId, completedMinutes = 0 }) => {
+    const userDoc = await User.findById(userId);
+    if(!userDoc){
+        return;
+    }
+
+    const dateKey = getDateKeyUTC(new Date());
+    const heatmap = userDoc.heatmapActivity || [];
+    const daily = userDoc.courseDailyProgress || [];
+
+    const heatmapIdx = heatmap.findIndex((item) => item.date === dateKey);
+    if(heatmapIdx >= 0){
+        heatmap[heatmapIdx].count = (heatmap[heatmapIdx].count || 0) + 1;
+        heatmap[heatmapIdx].minutes = (heatmap[heatmapIdx].minutes || 0) + completedMinutes;
+    } else {
+        heatmap.push({
+            date: dateKey,
+            count: 1,
+            minutes: completedMinutes
+        });
+    }
+
+    const dailyIdx = daily.findIndex((item) => item.date === dateKey && `${item.courseId}` === `${courseId}`);
+    if(dailyIdx >= 0){
+        daily[dailyIdx].completedVideos = (daily[dailyIdx].completedVideos || 0) + 1;
+        daily[dailyIdx].completedMinutes = (daily[dailyIdx].completedMinutes || 0) + completedMinutes;
+    } else {
+        daily.push({
+            date: dateKey,
+            courseId: `${courseId}`,
+            completedVideos: 1,
+            completedMinutes
+        });
+    }
+
+    userDoc.heatmapActivity = heatmap;
+    userDoc.courseDailyProgress = daily;
+    await userDoc.save();
+}
+
+const safeJsonParse = (text = "") => {
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        const jsonMatch = `${text}`.match(/\{[\s\S]*\}/);
+        if(jsonMatch){
+            try {
+                return JSON.parse(jsonMatch[0]);
+            } catch (innerErr) {
+                return null;
+            }
+        }
+        return null;
+    }
+}
+
+const normalizeQuizQuestions = (quizPayload) => {
+    const rawQuestions = Array.isArray(quizPayload?.questions) ? quizPayload.questions : [];
+    const validated = rawQuestions.map((item, idx) => {
+        const options = Array.isArray(item?.options) ? item.options.slice(0,4).map((opt) => `${opt}`.trim()) : [];
+        const optionIndex = parseInt(item?.correctOptionIndex, 10);
+        return {
+            question: `${item?.question || ""}`.trim(),
+            options,
+            correctOptionIndex: Number.isInteger(optionIndex) ? optionIndex : -1,
+            conceptTag: `${item?.conceptTag || "general"}`.trim().toLowerCase() || "general",
+            difficulty: `${item?.difficulty || "medium"}`.trim().toLowerCase() || "medium",
+            explanation: `${item?.explanation || ""}`.trim(),
+            hint: `${item?.hint || ""}`.trim()
+        };
+    }).filter((item) => item.question && item.options.length === 4 && item.correctOptionIndex >= 0 && item.correctOptionIndex <= 3);
+
+    return validated.slice(0,8);
+}
+
+const buildFallbackQuizQuestions = ({ title = "", description = "", topicTags = [] }) => {
+    const titleText = `${title}`.trim() || "this lesson";
+    const mainTopic = topicTags?.[0] || "general concept";
+    const descWords = `${description}`.split(" ").filter(Boolean).slice(0, 12).join(" ");
+
+    return [
+        {
+            question: `What is the primary focus of "${titleText}"?`,
+            options: [
+                `${mainTopic} fundamentals`,
+                "Cloud infrastructure setup",
+                "Hardware troubleshooting",
+                "UI color theory"
+            ],
+            correctOptionIndex: 0,
+            conceptTag: mainTopic,
+            difficulty: "easy",
+            explanation: "The topic focus is inferred from the video title and learning context.",
+            hint: "Look at the core keyword in the title."
+        },
+        {
+            question: `Which approach best helps retain concepts from this lesson?`,
+            options: [
+                "Memorizing without practice",
+                "Combining explanation with active problem-solving",
+                "Skipping examples and jumping to advanced topics",
+                "Ignoring prerequisite concepts"
+            ],
+            correctOptionIndex: 1,
+            conceptTag: "learning-strategy",
+            difficulty: "medium",
+            explanation: "Active recall and practice improve retention and transfer.",
+            hint: "Pick the option that includes both understanding and practice."
+        },
+        {
+            question: `Based on the lesson context, what should be your next step after finishing the video?`,
+            options: [
+                "Practice concept-focused questions and review weak points",
+                "Switch to unrelated topics immediately",
+                "Avoid revision",
+                "Only watch at 2x without notes"
+            ],
+            correctOptionIndex: 0,
+            conceptTag: "revision",
+            difficulty: "easy",
+            explanation: "Deliberate practice and revision reinforce understanding.",
+            hint: "Choose the action that builds on the lesson, not away from it."
+        },
+        {
+            question: `Which statement is most aligned with effective understanding of ${mainTopic}?`,
+            options: [
+                "Learn only definitions",
+                "Connect concepts to examples and edge cases",
+                "Skip concept relationships",
+                "Avoid debugging or reflection"
+            ],
+            correctOptionIndex: 1,
+            conceptTag: mainTopic,
+            difficulty: "medium",
+            explanation: "Examples and edge-case thinking build deeper understanding.",
+            hint: "Look for the option emphasizing application over memorization."
+        },
+        {
+            question: `Which snippet appears in the lesson context summary?`,
+            options: [
+                `${descWords || "Core ideas and practical understanding"}`,
+                "No educational context provided",
+                "Only marketing links",
+                "A random unrelated recipe"
+            ],
+            correctOptionIndex: 0,
+            conceptTag: "comprehension",
+            difficulty: "easy",
+            explanation: "This option reflects the available lesson context.",
+            hint: "Find the option that resembles a real lesson snippet."
+        }
+    ];
+}
+
+const buildQuizAnalysis = ({ questionReview = [], percentage = 0 }) => {
+    const conceptMap = {};
+    const difficultyMap = {};
+
+    questionReview.forEach((item) => {
+        const conceptKey = item.conceptTag || "general";
+        const difficultyKey = item.difficulty || "medium";
+        if(!conceptMap[conceptKey]){
+            conceptMap[conceptKey] = { key: conceptKey, correct: 0, total: 0, accuracy: 0 };
+        }
+        if(!difficultyMap[difficultyKey]){
+            difficultyMap[difficultyKey] = { key: difficultyKey, correct: 0, total: 0, accuracy: 0 };
+        }
+
+        conceptMap[conceptKey].total += 1;
+        difficultyMap[difficultyKey].total += 1;
+        if(item.isCorrect){
+            conceptMap[conceptKey].correct += 1;
+            difficultyMap[difficultyKey].correct += 1;
+        }
+    });
+
+    const conceptBreakdown = Object.values(conceptMap).map((item) => ({
+        ...item,
+        accuracy: item.total ? Math.round((item.correct / item.total) * 100) : 0
+    }));
+    const difficultyBreakdown = Object.values(difficultyMap).map((item) => ({
+        ...item,
+        accuracy: item.total ? Math.round((item.correct / item.total) * 100) : 0
+    }));
+
+    const strengths = conceptBreakdown.filter((item) => item.accuracy >= 70).map((item) => `${item.key} (${item.accuracy}%)`);
+    const weakAreas = conceptBreakdown.filter((item) => item.accuracy < 70).map((item) => `${item.key} (${item.accuracy}%)`);
+
+    const recommendedActions = [];
+    if(percentage < 50){
+        recommendedActions.push("Rewatch this video once at normal speed and pause at key explanations.");
+        recommendedActions.push("Attempt the quiz again after revising concept notes.");
+    } else if(percentage < 75){
+        recommendedActions.push("Review only incorrectly answered questions and revise their explanations.");
+        recommendedActions.push("Practice 3-5 focused questions on weak concepts.");
+    } else {
+        recommendedActions.push("You can move ahead, but quickly revise wrong questions once.");
+        recommendedActions.push("Try medium/hard practice for stronger transfer.");
+    }
+
+    const overallFeedback = percentage >= 80
+        ? "Strong understanding. Keep consistency and push difficulty gradually."
+        : percentage >= 60
+            ? "Good progress. A focused revision pass can improve your score significantly."
+            : "Current understanding is developing. Do one revision cycle before moving forward.";
+
+    return {
+        conceptBreakdown,
+        difficultyBreakdown,
+        strengths,
+        weakAreas,
+        recommendedActions,
+        overallFeedback
+    };
+}
+
+const getAdaptiveDifficulty = (latestAttempt = null) => {
+    const score = latestAttempt?.percentage ?? null;
+    if(score === null || score === undefined){
+        return "medium";
+    }
+    if(score >= 85){
+        return "hard";
+    }
+    if(score >= 60){
+        return "medium";
+    }
+    return "easy";
+}
+
+const buildStartOfDay = (dateLike = new Date()) => {
+    const d = new Date(dateLike);
+    d.setHours(0, 0, 0, 0);
+    return d;
+}
+
+const formatSecondsLabel = (seconds = 0) => {
+    const safe = Math.max(0, Math.floor(seconds));
+    const mins = Math.floor(safe / 60);
+    const secs = safe % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+const updateSpacedReviewSchedule = async ({ owner, courseId, videoDoc, conceptBreakdown = [] }) => {
+    const weakItems = conceptBreakdown.filter((item) => item.accuracy < 70);
+    const strongItems = conceptBreakdown.filter((item) => item.accuracy >= 70);
+    const dayOffsets = [1, 3, 7];
+    const now = new Date();
+
+    for(const weakItem of weakItems){
+        const existing = await QuizReviewSchedule.findOne({
+            owner,
+            courseId,
+            videoDbId: videoDoc._id,
+            conceptTag: weakItem.key
+        });
+
+        const stage = existing ? Math.min(existing.stage, dayOffsets.length - 1) : 0;
+        const nextDate = new Date(now);
+        nextDate.setDate(nextDate.getDate() + dayOffsets[stage]);
+
+        if(existing){
+            existing.nextReviewAt = nextDate;
+            existing.lastAccuracy = weakItem.accuracy;
+            existing.completed = false;
+            await existing.save();
+        } else {
+            await QuizReviewSchedule.create({
+                owner,
+                courseId,
+                videoDbId: videoDoc._id,
+                videoId: videoDoc.videoId,
+                conceptTag: weakItem.key,
+                stage,
+                nextReviewAt: nextDate,
+                lastAccuracy: weakItem.accuracy,
+                completed: false
+            });
+        }
+    }
+
+    for(const strongItem of strongItems){
+        const existing = await QuizReviewSchedule.findOne({
+            owner,
+            courseId,
+            videoDbId: videoDoc._id,
+            conceptTag: strongItem.key
+        });
+
+        if(!existing){
+            continue;
+        }
+
+        const nextStage = existing.stage + 1;
+        if(nextStage >= dayOffsets.length){
+            existing.completed = true;
+            existing.nextReviewAt = new Date(now);
+            existing.lastAccuracy = strongItem.accuracy;
+            await existing.save();
+            continue;
+        }
+
+        const nextDate = new Date(now);
+        nextDate.setDate(nextDate.getDate() + dayOffsets[nextStage]);
+        existing.stage = nextStage;
+        existing.nextReviewAt = nextDate;
+        existing.lastAccuracy = strongItem.accuracy;
+        existing.completed = false;
+        await existing.save();
+    }
+}
+
+const buildRevisionClips = ({ questionReview = [], transcriptDoc = null, videoDoc = null }) => {
+    const wrong = questionReview.filter((item) => !item.isCorrect);
+    if(!wrong.length){
+        return [];
+    }
+
+    const transcriptItems = transcriptDoc?.transcript || [];
+    const usedConcepts = new Set();
+    const clips = [];
+
+    wrong.forEach((item) => {
+        const concept = `${item.conceptTag || "general"}`.toLowerCase();
+        if(usedConcepts.has(concept)){
+            return;
+        }
+        usedConcepts.add(concept);
+
+        let startSeconds = 0;
+        let endSeconds = 90;
+        if(transcriptItems.length){
+            const hit = transcriptItems.find((row) => `${row?.text || ""}`.toLowerCase().includes(concept));
+            if(hit){
+                startSeconds = Math.max(0, Math.floor((hit.offset || 0) - 20));
+                endSeconds = Math.floor((hit.offset || 0) + 70);
+            }
+        } else {
+            const totalSeconds = parseIsoDurationToSeconds(videoDoc?.duration || "PT0S");
+            const hash = concept.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+            const anchor = totalSeconds ? hash % Math.max(totalSeconds, 1) : 0;
+            startSeconds = Math.max(0, anchor - 25);
+            endSeconds = totalSeconds ? Math.min(totalSeconds, anchor + 65) : anchor + 65;
+        }
+
+        clips.push({
+            conceptTag: concept,
+            startSeconds,
+            endSeconds,
+            label: `${formatSecondsLabel(startSeconds)} - ${formatSecondsLabel(endSeconds)}`,
+            reason: `Revisit ${concept} due to wrong answer(s).`
+        });
+    });
+
+    return clips.slice(0, 5);
+}
+
 const getYouTubeVideosMeta = async (videoIds = []) => {
     if(!videoIds.length){
         return [];
@@ -271,6 +717,12 @@ export const courseController = async (req,res) => {
         const personalization = req.body.personalization || {};
         const knownTopics = normalizeTopics(personalization.knownTopics || []);
         const recommendedPace = buildPace(personalization);
+        const subject = await resolveAutoSubjectForUser({
+            owner: req.user.username,
+            title: req.body.name || "",
+            personalization,
+            knownTopics
+        });
         const checkArr = await Course.find({
             playlistId: playlistID,
             owner: req.user.username
@@ -329,6 +781,7 @@ export const courseController = async (req,res) => {
                 totalVideos: courseData.data.items.filter((e) => e.snippet.title !== "Deleted video" && e.snippet.title !== "Private video").length,
                 videos: [],
                 owner: req.user.username,
+                subject,
                 thumbnail: courseData.data.items[0].snippet.thumbnails.maxres?.url || courseData.data.items[0].snippet.thumbnails.standard?.url || courseData.data.items[0].snippet.thumbnails.high?.url || courseData.data.items[0].snippet.thumbnails.default?.url,
                 completedVideos: [-1],
                 lastVideoPlayed: 0,
@@ -460,6 +913,12 @@ export const createCustomCourseController = async (req, res) => {
 
         const knownTopics = normalizeTopics(personalization.knownTopics || []);
         const recommendedPace = buildPace(personalization);
+        const subject = await resolveAutoSubjectForUser({
+            owner: req.user.username,
+            title: name || "",
+            personalization,
+            knownTopics
+        });
         const videosMeta = await getYouTubeVideosMeta(extractedVideoIds);
 
         if(!videosMeta.length){
@@ -480,6 +939,7 @@ export const createCustomCourseController = async (req, res) => {
             totalVideos: validVideosMeta.length,
             videos: [],
             owner: req.user.username,
+            subject,
             thumbnail: fallbackThumbnail,
             completedVideos: [-1],
             lastVideoPlayed: 0,
@@ -649,6 +1109,137 @@ export const getCourseData = async(req,res) => {
         return sendError(res, 500, "Failed to fetch course data", error.message)
     }
 
+}
+
+export const updateCoursePlan = async (req,res) => {
+    try {
+        const { courseId = "", targetEndDate = null } = req.body;
+        if(!courseId){
+            return sendError(res, 400, "courseId is required");
+        }
+
+        const update = {};
+        if(targetEndDate){
+            const parsed = new Date(targetEndDate);
+            if(Number.isNaN(parsed.getTime())){
+                return sendError(res, 400, "Invalid targetEndDate");
+            }
+            update.targetEndDate = parsed;
+        } else {
+            update.targetEndDate = null;
+        }
+
+        const updated = await Course.findOneAndUpdate({
+            _id: courseId,
+            owner: req.user.username
+        }, update, { new: true });
+
+        if(!updated){
+            return sendError(res, 404, "Course not found");
+        }
+
+        return sendSuccess(res, 200, "Course plan updated successfully", {
+            courseId: updated._id,
+            targetEndDate: updated.targetEndDate
+        });
+    } catch (error) {
+        console.error("Course Plan Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
+
+export const getCourseProgressInsights = async (req,res) => {
+    try {
+        const { id } = req.params;
+        const course = await Course.findOne({
+            _id: id,
+            owner: req.user.username
+        });
+
+        if(!course){
+            return sendError(res, 404, "Course not found");
+        }
+
+        const videos = await Video.find({
+            playlist: id,
+            owner: req.user.username
+        });
+
+        const totalSeconds = videos.reduce((acc, video) => {
+            const sec = parseIsoDurationToSeconds(video.duration || "PT0S");
+            return acc + (sec || 0);
+        }, 0);
+
+        const completedSeconds = videos.reduce((acc, video) => {
+            const fullDuration = parseIsoDurationToSeconds(video.duration || "PT0S");
+            if(video.completed){
+                return acc + fullDuration;
+            }
+            const progress = Math.max(0, Math.floor(video.progressTime || 0));
+            return acc + Math.min(progress, fullDuration || progress);
+        }, 0);
+
+        const totalVideosCount = videos.length;
+        const completedVideosCount = videos.filter((item) => item.completed === true).length;
+        const remainingVideosCount = Math.max(0, totalVideosCount - completedVideosCount);
+        const remainingSeconds = Math.max(0, totalSeconds - completedSeconds);
+        const percentageCompleted = totalSeconds ? Math.round((completedSeconds / totalSeconds) * 100) : 0;
+        const remainingPercentage = Math.max(0, 100 - percentageCompleted);
+
+        const todayKey = getDateKeyUTC(new Date());
+        const todayEntry = (req.user.courseDailyProgress || []).find(
+            (item) => item.date === todayKey && `${item.courseId}` === `${id}`
+        );
+        const actualCompletedHoursToday = Number((((todayEntry?.completedMinutes || 0) / 60).toFixed(2)));
+        const actualCompletedVideosToday = todayEntry?.completedVideos || 0;
+
+        const urgencyRaw = `${course?.personalizationProfile?.goalUrgency || ""}`.toLowerCase();
+        const urgency = urgencyRaw.includes("high")
+            ? "high"
+            : urgencyRaw.includes("low")
+                ? "low"
+                : "medium";
+
+        let dailyGoalVideos = 1;
+        if(urgency === "high"){
+            dailyGoalVideos = remainingVideosCount >= 20 ? 4 : remainingVideosCount >= 8 ? 3 : 2;
+        } else if(urgency === "medium"){
+            dailyGoalVideos = remainingVideosCount >= 12 ? 2 : 1;
+        } else {
+            dailyGoalVideos = 1;
+        }
+        dailyGoalVideos = Math.max(1, Math.min(dailyGoalVideos, remainingVideosCount || 1));
+
+        const daysToTarget = Math.max(1, Math.ceil((remainingVideosCount || 1) / dailyGoalVideos));
+        const autoTargetDate = new Date();
+        autoTargetDate.setHours(0, 0, 0, 0);
+        autoTargetDate.setDate(autoTargetDate.getDate() + Math.max(0, daysToTarget - 1));
+
+        const recommendedDailyWatchHours = Number(((remainingSeconds / 3600) / daysToTarget).toFixed(2));
+
+        return sendSuccess(res, 200, "Course progress insights fetched successfully", {
+            courseId: course._id,
+            targetEndDate: autoTargetDate,
+            planPriority: urgency,
+            percentageCompleted,
+            remainingPercentage,
+            totalVideosCount,
+            completedVideosCount,
+            remainingVideosCount,
+            totalDurationHours: Number((totalSeconds / 3600).toFixed(2)),
+            completedDurationHours: Number((completedSeconds / 3600).toFixed(2)),
+            remainingDurationHours: Number((remainingSeconds / 3600).toFixed(2)),
+            recommendedDailyWatchHours,
+            daysToTarget,
+            todaysGoalHours: recommendedDailyWatchHours,
+            todaysCompletedHours: actualCompletedHoursToday,
+            todaysGoalVideos: dailyGoalVideos,
+            todaysCompletedVideos: actualCompletedVideosToday
+        });
+    } catch (error) {
+        console.error("Course Progress Insights Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
 }
 
 export const getAi = async (req,res) => {
@@ -1109,6 +1700,7 @@ export const updateCourseProgess = async (req,res) => {
 export const updateVideoProgess = async (req,res) => {
     try {
         const {progress_time, duration, completed, videoId, progressTime, totalDuration} = req.body;
+        const completedIncoming = completed === true;
         const newUpdatedVideo = await Video.findOneAndUpdate({
             _id: videoId,
             owner: req.user.username
@@ -1120,6 +1712,18 @@ export const updateVideoProgess = async (req,res) => {
 
         if(!newUpdatedVideo){
             return sendError(res, 403, "Video not found or unauthorized");
+        }
+
+        if(!newUpdatedVideo.completed && completedIncoming){
+            const completedMinutes = Math.max(
+                1,
+                Math.ceil(((duration ?? totalDuration ?? newUpdatedVideo.totalDuration) || 0) / 60)
+            );
+            await upsertUserDailyActivity({
+                userId: req.user._id,
+                courseId: newUpdatedVideo.playlist,
+                completedMinutes
+            });
         }
 
         return sendSuccess(res, 200, "Video Progress Updated Successfully")
@@ -1218,6 +1822,36 @@ export const updateLastPlayedCourse = async (req,res) => {
         return sendError(res, 500, "Server Error", error.message);
     }
 }
+
+export const updateCourseSubject = async (req,res) => {
+    try {
+        const { courseId = "", subject = "" } = req.body;
+        if(!courseId){
+            return sendError(res, 400, "courseId is required");
+        }
+
+        const normalized = normalizeSubject(subject);
+        const updated = await Course.findOneAndUpdate({
+            _id: courseId,
+            owner: req.user.username
+        }, {
+            subject: normalized
+        }, { new: true });
+
+        if(!updated){
+            return sendError(res, 404, "Course not found");
+        }
+
+        return sendSuccess(res, 200, "Course subject updated successfully", {
+            _id: updated._id,
+            title: updated.title,
+            subject: updated.subject
+        });
+    } catch (error) {
+        console.error("Course Subject Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
 export const deleteVideoNotes = async (req,res) => {
     try {
         const {noteId, videoId} = req.body;
@@ -1255,6 +1889,490 @@ export const deleteVideoNotes = async (req,res) => {
         });
     } catch (error) {
         console.error("Chat Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
+
+export const getVideoQuiz = async (req,res) => {
+    try {
+        const { videoDbId, adaptive = false, focusConcept = "" } = req.body;
+        if(!videoDbId){
+            return sendError(res, 400, "videoDbId is required");
+        }
+
+        const videoDoc = await Video.findOne({
+            _id: videoDbId,
+            owner: req.user.username
+        });
+        if(!videoDoc){
+            return sendError(res, 404, "Video not found");
+        }
+
+        let quizDoc = await Quiz.findOne({
+            videoDbId: videoDoc._id,
+            owner: req.user.username
+        });
+
+        const attempts = await QuizAttempt.find({
+            quizId: quizDoc?._id,
+            owner: req.user.username
+        }).sort({ createdAt: -1 }).limit(10);
+
+        const latestAttempt = attempts.length ? attempts[0] : null;
+        const adaptiveDifficulty = getAdaptiveDifficulty(latestAttempt);
+        const shouldRegenerateAdaptive = Boolean(adaptive && quizDoc && latestAttempt);
+
+        if(!quizDoc || shouldRegenerateAdaptive){
+            const summaryDoc = await Summary.findOne({ videoId: videoDoc.videoId }).sort({ createdAt: -1 });
+            const transcriptDoc = await Transcript.findOne({ videoId: videoDoc.videoId }).sort({ createdAt: -1 });
+            const transcriptSnippet = (transcriptDoc?.transcript || []).slice(0, 30).map((line) => line?.text || "").join(" ").slice(0, 2500);
+
+            let quizQuestions = [];
+            try {
+                const result = await generateText({
+                    model: groq('meta-llama/llama-4-scout-17b-16e-instruct'),
+                    temperature: 0.2,
+                    messages: [
+                        { role: "system", content: `
+You are a strict JSON API for generating a post-video quiz.
+Return only JSON object:
+{
+  "questions": [
+    {
+      "question": "string",
+      "options": ["string","string","string","string"],
+      "correctOptionIndex": 0,
+      "conceptTag": "string",
+      "difficulty": "easy|medium|hard",
+      "explanation": "string",
+      "hint": "string"
+    }
+  ]
+}
+Rules:
+- Generate exactly 5 MCQs.
+- Questions must be based on given video context only.
+- Each question must have exactly 4 options.
+- correctOptionIndex must be 0-3.
+- Keep conceptTag concise.
+- Keep explanations short and useful.
+- Hint must guide thought process only, never reveal correct answer.
+- Target difficulty: ${adaptiveDifficulty}
+- If focusConcept is provided, prioritize that concept in at least 3 questions.
+Do not return markdown.
+`},
+                        { role: "user", content: JSON.stringify({
+                            title: videoDoc.title,
+                            description: videoDoc.description,
+                            topicTags: videoDoc.topicTags || [],
+                            summary: summaryDoc?.summary || "",
+                            transcriptSample: transcriptSnippet,
+                            targetDifficulty: adaptiveDifficulty,
+                            focusConcept
+                        }) }
+                    ],
+                    response_format: { type: "json_object" }
+                });
+
+                const parsed = safeJsonParse(result?.text || "");
+                quizQuestions = normalizeQuizQuestions(parsed);
+            } catch (quizGenErr) {
+                quizQuestions = [];
+            }
+
+            if(!quizQuestions.length){
+                quizQuestions = buildFallbackQuizQuestions({
+                    title: videoDoc.title,
+                    description: videoDoc.description,
+                    topicTags: videoDoc.topicTags || []
+                });
+            }
+
+            if(quizDoc){
+                quizDoc.questions = quizQuestions;
+                await quizDoc.save();
+            } else {
+                quizDoc = new Quiz({
+                    videoDbId: videoDoc._id,
+                    videoId: videoDoc.videoId,
+                    courseId: videoDoc.playlist,
+                    owner: req.user.username,
+                    questions: quizQuestions
+                });
+                await quizDoc.save();
+            }
+        }
+
+        const finalAttempts = await QuizAttempt.find({
+            quizId: quizDoc._id,
+            owner: req.user.username
+        }).sort({ createdAt: -1 }).limit(10);
+
+        const finalLatestAttempt = finalAttempts.length ? finalAttempts[0] : null;
+
+        const sanitizedQuiz = {
+            _id: quizDoc._id,
+            videoDbId: quizDoc.videoDbId,
+            videoId: quizDoc.videoId,
+            courseId: quizDoc.courseId,
+            questions: quizDoc.questions.map((item, idx) => ({
+                id: idx,
+                question: item.question,
+                options: item.options,
+                conceptTag: item.conceptTag,
+                difficulty: item.difficulty,
+                hint: item.hint || ""
+            }))
+        };
+
+        return sendSuccess(res, 200, "Quiz fetched successfully", {
+            quiz: sanitizedQuiz,
+            latestAttempt: finalLatestAttempt,
+            attempts: finalAttempts
+        });
+    } catch (error) {
+        console.error("Quiz Fetch Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
+
+export const submitVideoQuiz = async (req,res) => {
+    try {
+        const { quizId, videoDbId, answers = [], timeSpentSeconds = 0 } = req.body;
+
+        if(!quizId || !videoDbId){
+            return sendError(res, 400, "quizId and videoDbId are required");
+        }
+        if(!Array.isArray(answers)){
+            return sendError(res, 400, "answers should be an array");
+        }
+
+        const videoDoc = await Video.findOne({
+            _id: videoDbId,
+            owner: req.user.username
+        });
+        if(!videoDoc){
+            return sendError(res, 404, "Video not found");
+        }
+
+        const quizDoc = await Quiz.findOne({
+            _id: quizId,
+            videoDbId: videoDoc._id,
+            owner: req.user.username
+        });
+        if(!quizDoc){
+            return sendError(res, 404, "Quiz not found");
+        }
+
+        if(answers.length !== quizDoc.questions.length){
+            return sendError(res, 400, "Please answer all quiz questions");
+        }
+
+        const questionReview = quizDoc.questions.map((item, idx) => {
+            const selectedOptionIndex = parseInt(answers[idx], 10);
+            const normalizedIndex = Number.isInteger(selectedOptionIndex) ? selectedOptionIndex : -1;
+            const isCorrect = normalizedIndex === item.correctOptionIndex;
+            return {
+                question: item.question,
+                selectedOptionIndex: normalizedIndex,
+                correctOptionIndex: item.correctOptionIndex,
+                selectedOption: item.options?.[normalizedIndex] || "",
+                correctOption: item.options?.[item.correctOptionIndex] || "",
+                isCorrect,
+                conceptTag: item.conceptTag || "general",
+                difficulty: item.difficulty || "medium",
+                explanation: item.explanation || ""
+            };
+        });
+
+        const score = questionReview.filter((item) => item.isCorrect).length;
+        const totalQuestions = quizDoc.questions.length;
+        const percentage = totalQuestions ? Math.round((score / totalQuestions) * 100) : 0;
+        const analysis = buildQuizAnalysis({
+            questionReview,
+            percentage
+        });
+        const transcriptDoc = await Transcript.findOne({ videoId: videoDoc.videoId }).sort({ createdAt: -1 });
+        const revisionClips = buildRevisionClips({
+            questionReview,
+            transcriptDoc,
+            videoDoc
+        });
+
+        const newAttempt = new QuizAttempt({
+            quizId: quizDoc._id,
+            videoDbId: videoDoc._id,
+            videoId: videoDoc.videoId,
+            courseId: videoDoc.playlist,
+            owner: req.user.username,
+            answers: answers.map((item) => parseInt(item, 10)),
+            score,
+            totalQuestions,
+            percentage,
+            timeSpentSeconds: Math.max(0, parseInt(timeSpentSeconds || 0, 10) || 0),
+            conceptBreakdown: analysis.conceptBreakdown,
+            difficultyBreakdown: analysis.difficultyBreakdown,
+            strengths: analysis.strengths,
+            weakAreas: analysis.weakAreas,
+            recommendedActions: analysis.recommendedActions,
+            overallFeedback: analysis.overallFeedback,
+            questionReview,
+            revisionClips
+        });
+        await newAttempt.save();
+        await updateSpacedReviewSchedule({
+            owner: req.user.username,
+            courseId: videoDoc.playlist,
+            videoDoc,
+            conceptBreakdown: analysis.conceptBreakdown
+        });
+
+        return sendSuccess(res, 201, "Quiz submitted successfully", newAttempt);
+    } catch (error) {
+        console.error("Quiz Submit Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
+
+export const getQuizMastery = async (req,res) => {
+    try {
+        const { courseId } = req.params;
+        if(!courseId){
+            return sendError(res, 400, "courseId is required");
+        }
+
+        const courseDoc = await Course.findOne({
+            _id: courseId,
+            owner: req.user.username
+        });
+        if(!courseDoc){
+            return sendError(res, 404, "Course not found");
+        }
+
+        const attempts = await QuizAttempt.find({
+            courseId,
+            owner: req.user.username
+        }).sort({ createdAt: -1 });
+
+        const conceptMap = {};
+        attempts.forEach((attempt) => {
+            (attempt.conceptBreakdown || []).forEach((item) => {
+                if(!conceptMap[item.key]){
+                    conceptMap[item.key] = {
+                        conceptTag: item.key,
+                        correct: 0,
+                        total: 0,
+                        accuracy: 0
+                    };
+                }
+                conceptMap[item.key].correct += item.correct || 0;
+                conceptMap[item.key].total += item.total || 0;
+            });
+        });
+
+        const mastery = Object.values(conceptMap).map((item) => ({
+            ...item,
+            accuracy: item.total ? Math.round((item.correct / item.total) * 100) : 0,
+            status: item.total ? ((item.correct / item.total) >= 0.8 ? "mastered" : (item.correct / item.total) >= 0.6 ? "improving" : "weak") : "weak"
+        })).sort((a, b) => b.accuracy - a.accuracy);
+
+        return sendSuccess(res, 200, "Mastery fetched successfully", {
+            mastery,
+            totalAttempts: attempts.length
+        });
+    } catch (error) {
+        console.error("Quiz Mastery Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
+
+export const getQuizReviewSchedule = async (req,res) => {
+    try {
+        const { courseId } = req.params;
+        if(!courseId){
+            return sendError(res, 400, "courseId is required");
+        }
+
+        const courseDoc = await Course.findOne({
+            _id: courseId,
+            owner: req.user.username
+        });
+        if(!courseDoc){
+            return sendError(res, 404, "Course not found");
+        }
+
+        const now = new Date();
+        const dueItems = await QuizReviewSchedule.find({
+            owner: req.user.username,
+            courseId,
+            completed: false,
+            nextReviewAt: { $lte: now }
+        }).sort({ nextReviewAt: 1 }).limit(30);
+
+        const upcomingItems = await QuizReviewSchedule.find({
+            owner: req.user.username,
+            courseId,
+            completed: false,
+            nextReviewAt: { $gt: now }
+        }).sort({ nextReviewAt: 1 }).limit(30);
+
+        return sendSuccess(res, 200, "Review schedule fetched successfully", {
+            dueItems,
+            upcomingItems
+        });
+    } catch (error) {
+        console.error("Quiz Schedule Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
+
+export const getQuizStats = async (req,res) => {
+    try {
+        const { courseId } = req.params;
+        if(!courseId){
+            return sendError(res, 400, "courseId is required");
+        }
+
+        const courseDoc = await Course.findOne({
+            _id: courseId,
+            owner: req.user.username
+        });
+        if(!courseDoc){
+            return sendError(res, 404, "Course not found");
+        }
+
+        const attempts = await QuizAttempt.find({
+            courseId,
+            owner: req.user.username
+        }).sort({ createdAt: -1 });
+
+        const dayMap = {};
+        attempts.forEach((attempt) => {
+            const dayKey = buildStartOfDay(attempt.createdAt).toISOString();
+            if(!dayMap[dayKey]){
+                dayMap[dayKey] = 0;
+            }
+            dayMap[dayKey] += 1;
+        });
+
+        const dayKeys = Object.keys(dayMap).sort((a, b) => new Date(b) - new Date(a));
+        let streak = 0;
+        if(dayKeys.length){
+            let cursor = buildStartOfDay(new Date());
+            for(let i = 0; i < 365; i += 1){
+                const cursorKey = cursor.toISOString();
+                if(dayMap[cursorKey]){
+                    streak += 1;
+                    cursor.setDate(cursor.getDate() - 1);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        const windowStart = buildStartOfDay(new Date());
+        windowStart.setDate(windowStart.getDate() - 29);
+        let activeDays = 0;
+        Object.keys(dayMap).forEach((key) => {
+            const date = new Date(key);
+            if(date >= windowStart){
+                activeDays += 1;
+            }
+        });
+        const consistencyScore = Math.min(100, Math.round((activeDays / 30) * 100));
+        const avgScore = attempts.length
+            ? Math.round(attempts.reduce((acc, item) => acc + (item.percentage || 0), 0) / attempts.length)
+            : 0;
+
+        return sendSuccess(res, 200, "Quiz stats fetched successfully", {
+            streak,
+            consistencyScore,
+            avgScore,
+            totalAttempts: attempts.length,
+            activeDaysLast30: activeDays
+        });
+    } catch (error) {
+        console.error("Quiz Stats Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
+
+export const getQuizInstructorAnalytics = async (req,res) => {
+    try {
+        const { courseId } = req.params;
+        if(!courseId){
+            return sendError(res, 400, "courseId is required");
+        }
+
+        const courseDoc = await Course.findOne({
+            _id: courseId,
+            owner: req.user.username
+        });
+        if(!courseDoc){
+            return sendError(res, 404, "Course not found");
+        }
+
+        const videos = await Video.find({
+            playlist: courseId,
+            owner: req.user.username
+        }).sort({ createdAt: 1 });
+
+        const attempts = await QuizAttempt.find({
+            courseId,
+            owner: req.user.username
+        });
+
+        const attemptsByVideo = {};
+        const conceptMap = {};
+        attempts.forEach((attempt) => {
+            const key = `${attempt.videoDbId}`;
+            if(!attemptsByVideo[key]){
+                attemptsByVideo[key] = [];
+            }
+            attemptsByVideo[key].push(attempt);
+
+            (attempt.conceptBreakdown || []).forEach((item) => {
+                if(!conceptMap[item.key]){
+                    conceptMap[item.key] = {
+                        topic: item.key,
+                        correct: 0,
+                        total: 0
+                    };
+                }
+                conceptMap[item.key].correct += item.correct || 0;
+                conceptMap[item.key].total += item.total || 0;
+            });
+        });
+
+        const dropoff = videos.map((videoItem, index) => {
+            const key = `${videoItem._id}`;
+            const videoAttempts = attemptsByVideo[key] || [];
+            const avgQuizScore = videoAttempts.length
+                ? Math.round(videoAttempts.reduce((acc, item) => acc + (item.percentage || 0), 0) / videoAttempts.length)
+                : 0;
+            return {
+                videoDbId: videoItem._id,
+                videoId: videoItem.videoId,
+                title: videoItem.title,
+                sequence: index + 1,
+                completion: videoItem.completed ? 100 : (videoItem.totalDuration ? Math.min(99, Math.round((videoItem.progressTime / videoItem.totalDuration) * 100)) : 0),
+                quizAttempts: videoAttempts.length,
+                avgQuizScore
+            };
+        });
+
+        const weakTopicHeatmap = Object.values(conceptMap).map((item) => ({
+            topic: item.topic,
+            accuracy: item.total ? Math.round((item.correct / item.total) * 100) : 0,
+            intensity: item.total ? Math.max(0, 100 - Math.round((item.correct / item.total) * 100)) : 100
+        })).sort((a, b) => b.intensity - a.intensity);
+
+        return sendSuccess(res, 200, "Instructor analytics fetched successfully", {
+            dropoff,
+            weakTopicHeatmap
+        });
+    } catch (error) {
+        console.error("Quiz Analytics Error:", error);
         return sendError(res, 500, "Server Error", error.message);
     }
 }

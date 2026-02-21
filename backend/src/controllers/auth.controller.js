@@ -93,6 +93,46 @@ export const continueController = async (req,res) => {
         email: req.user.email,
         id: req.user._id,
         createdAt: req.user.createdAt,
-        lastCoursePlayed: req.user.lastCoursePlayed
+        lastCoursePlayed: req.user.lastCoursePlayed,
+        heatmapActivity: req.user.heatmapActivity || [],
+        courseDailyProgress: req.user.courseDailyProgress || []
     });
+}
+
+export const activitySummaryController = async (req,res) => {
+    try {
+        const activity = req.user.heatmapActivity || [];
+        const map = {};
+        activity.forEach((item) => {
+            if(!item?.date){
+                return;
+            }
+            map[item.date] = {
+                count: item.count || 0,
+                minutes: item.minutes || 0
+            };
+        });
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        let streak = 0;
+        for(let i = 0; i < 365; i += 1){
+            const probe = new Date(today);
+            probe.setDate(today.getDate() - i);
+            const key = probe.toISOString().slice(0, 10);
+            if(map[key]?.count > 0){
+                streak += 1;
+            } else {
+                break;
+            }
+        }
+
+        return sendSuccess(res, 200, "Activity summary fetched successfully", {
+            heatmap: map,
+            streak,
+            totalActiveDays: Object.keys(map).length
+        });
+    } catch (error) {
+        return sendError(res, 500, "Error occured", error.message);
+    }
 }

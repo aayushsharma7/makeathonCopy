@@ -26,6 +26,13 @@ const courseModel = new mongoose.Schema({
         type: String,
         required: true
     },
+    subject: {
+        type: String,
+        default: "general"
+    },
+    targetEndDate: {
+        type: Date
+    },
     completedVideos: [{
         type: Number,
     }],

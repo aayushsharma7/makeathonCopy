@@ -20,27 +20,12 @@ const Profile = () => {
     y: 0,
     date: ""
   });
-// to calculate streak
-function calculateStreak() {
-  if (!user) return 0;
-
-  let streakCount = 0;
-  let currentDate = new Date(); 
-
-  while (true) {
-    const dateKey = currentDate.toDateString(); 
-    
-    if (localStorage.getItem(dateKey)) {
-      streakCount++;
-      currentDate.setDate(currentDate.getDate() - 1);
-    } else {
-      break; 
-    }
-  }
-  return streakCount;
-}
-
-const streak = user ? calculateStreak() : 0;
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [activitySummary, setActivitySummary] = useState({
+    heatmap: {},
+    streak: 0,
+    totalActiveDays: 0
+  });
 
 //courses created 
 useEffect(() => {
@@ -65,7 +50,7 @@ useEffect(() => {
           vidsComp
         );
         setTotalVideosCreated(totalVideos)
-        setCompletionRate(Math.floor((vidsComp / totalVideos) * 100));
+        setCompletionRate(totalVideos ? Math.floor((vidsComp / totalVideos) * 100) : 0);
       }
     } catch (error) {
       console.log(error);
@@ -75,6 +60,8 @@ useEffect(() => {
 },[user]);
 
   
+  const streak = activitySummary?.streak || 0;
+
   const stats = [
     { label: 'Courses Created', value: coursesCreated, icon: BookOpen, color: 'text-blue-400' },
     { label: 'Lessons Completed', value:`${hoursLearned} / ${totalVideosCreated}`, icon: Clock, color: 'text-amber-400' },
@@ -82,26 +69,26 @@ useEffect(() => {
     { label: 'Current Streak', value:`${streak} days`, icon: Flame, color: 'text-orange-500' },
   ]
 
-  // Mock Data for Heatmap (364 days for a full grid look)
-  // 0 = empty, 1-4 = intensity levels
-  
-  
-
-  
-  // const heatmapData = generateHeatmapData();
-
-  
-  // for profile data
-  
 useEffect(() => {    
   const fetchUser = async () => {
     try {
       const res = await axios.get(
-        "http://localhost:3000/auth/check",
+        `${import.meta.env.VITE_API_URL}/auth/check`,
         { withCredentials: true }
       );
       if(res.data?.success){
         setUser(res.data?.data);
+        const activityRes = await axios.get(
+          `${import.meta.env.VITE_API_URL}/auth/activity-summary`,
+          { withCredentials: true }
+        );
+        if(activityRes?.data?.success){
+          setActivitySummary(activityRes?.data?.data || {
+            heatmap: {},
+            streak: 0,
+            totalActiveDays: 0
+          });
+        }
       }
       else{
         navigate("/login");
@@ -109,19 +96,14 @@ useEffect(() => {
     } catch {
       console.log("User not logged in");
       navigate("/login");
+    } finally {
+      setProfileLoading(false);
     }
   };
 
   fetchUser();
   
 }, [navigate]);
-
-useEffect(() => {
-  if (user) {
-    const todayKey = new Date().toDateString();
-    localStorage.setItem(todayKey, "active");
-  }
-}, [user]);
 
 const startOfYear = new Date(new Date().getFullYear(), 0, 1);
 
@@ -130,18 +112,32 @@ const heatmapData = Array.from({ length: 364 }, (_, index) => {
 
   const dateForIndex = new Date(startOfYear);
   dateForIndex.setDate(startOfYear.getDate() + index);
+  const key = dateForIndex.toISOString().slice(0, 10);
+  const count = activitySummary?.heatmap?.[key]?.count || 0;
 
-  if (localStorage.getItem(dateForIndex.toDateString())) {
-    return 1; // active day
+  if (count >= 4) {
+    return 4;
+  }
+  if (count === 3) {
+    return 3;
+  }
+  if (count === 2) {
+    return 2;
+  }
+  if (count === 1) {
+    return 1;
   }
 
-  return 0; // inactive day
+  return 0;
 });
 
 
 
 const getHeatmapColor = (level) => {
     switch (level) {
+      case 4: return 'bg-blue-300';
+      case 3: return 'bg-blue-400';
+      case 2: return 'bg-blue-500';
       case 1: return 'bg-blue-600';
       default: return 'bg-neutral-800/50';
     }
@@ -161,7 +157,7 @@ const getName=(name)=>{
 }
 
 
-  if (!user || !coursesCreated)
+  if (profileLoading || !user || coursesCreated === null)
     return (
       <div className="flex items-center justify-center min-h-screen  selection:bg-[#2563EB] selection:text-black overflow-hidden relative">
         <div

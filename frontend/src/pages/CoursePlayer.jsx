@@ -16,6 +16,7 @@ import {
   Bug,
   ExternalLink,
   ClipboardPen,
+  CircleHelp,
 } from "lucide-react";
 
 import ReactMarkdown from "react-markdown";
@@ -57,6 +58,7 @@ const CoursePlayer = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isCardsOpen, setIsCardsOpen] = useState(false);
   const [isPracticeOpen, setIsPracticeOpen] = useState(false);
+  const [isQuizOpen, setIsQuizOpen] = useState(false);
   const [problemsLoading, setProblemsLoading] = useState(true);
   const [isSummaryButtonOpen, setIsSummaryButtonOpen] = useState(true);
   const playerInstanceRef = useRef(null); // to use the player outside the useeffect...
@@ -91,6 +93,24 @@ const CoursePlayer = () => {
   const [problemsData, setProblemsData] = useState([]);
   const [relevant, setRelevant] = useState(true);
   const [summaryData, setSummaryData] = useState("");
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [quizSubmitLoading, setQuizSubmitLoading] = useState(false);
+  const [quizData, setQuizData] = useState(null);
+  const [quizAnswers, setQuizAnswers] = useState({});
+  const [quizResult, setQuizResult] = useState(null);
+  const [quizAttempts, setQuizAttempts] = useState([]);
+  const [selectedAttemptId, setSelectedAttemptId] = useState("");
+  const [quizError, setQuizError] = useState("");
+  const [quizStartedAt, setQuizStartedAt] = useState(0);
+  const [quizHintOpenMap, setQuizHintOpenMap] = useState({});
+  const [quizMastery, setQuizMastery] = useState([]);
+  const [quizSchedule, setQuizSchedule] = useState({ dueItems: [], upcomingItems: [] });
+  const [quizStats, setQuizStats] = useState(null);
+  const [quizAnalytics, setQuizAnalytics] = useState({ dropoff: [], weakTopicHeatmap: [] });
+  const [quizMetaLoading, setQuizMetaLoading] = useState(false);
+  const [progressInsights, setProgressInsights] = useState(null);
+  const [progressInsightsLoading, setProgressInsightsLoading] = useState(false);
+  const [showDailyTracker, setShowDailyTracker] = useState(true);
   const [openModulesMap, setOpenModulesMap] = useState({});
   const [newVideoUrls, setNewVideoUrls] = useState([""]);
   const [addingVideos, setAddingVideos] = useState(false);
@@ -108,6 +128,7 @@ const CoursePlayer = () => {
   const [userInput, setUserInput] = useState("");
 
   const initialDrawData= useRef(null) //useref as usestate was making it empty at refresh
+  const courseIdFromUrl = id?.split("}")[0] || "";
   
   const onLanguageChange = (e) => {
     const lang = e.target.value;
@@ -166,6 +187,18 @@ const CoursePlayer = () => {
 
   useEffect(() => {
     setIsProblemButtonOpen(true);
+    setQuizData(null);
+    setQuizAnswers({});
+    setQuizResult(null);
+    setQuizAttempts([]);
+    setSelectedAttemptId("");
+    setQuizError("");
+    setQuizStartedAt(0);
+    setQuizHintOpenMap({});
+    setQuizMastery([]);
+    setQuizSchedule({ dueItems: [], upcomingItems: [] });
+    setQuizStats(null);
+    setQuizAnalytics({ dropoff: [], weakTopicHeatmap: [] });
     if (localStorage.getItem(`problemsOpened_${data?.[activeIndex]?._id}`)) {
       if (
         localStorage.getItem(`problemsOpened_${data?.[activeIndex]?._id}`) ===
@@ -272,9 +305,195 @@ const CoursePlayer = () => {
     }
   };
 
+  const getQuizData = async ({ adaptive = false, focusConcept = "" } = {}) => {
+    if (!data?.[activeIndex]?._id) {
+      return;
+    }
+    setQuizLoading(true);
+    setQuizError("");
+    try {
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/course/quiz/get`,
+        {
+          videoDbId: data?.[activeIndex]?._id,
+          adaptive,
+          focusConcept,
+        },
+        {
+          withCredentials: true,
+        }
+      );
+      const quizPayload = getApiData(response);
+      setQuizData(quizPayload?.quiz || null);
+      setQuizAnswers({});
+      setQuizHintOpenMap({});
+      setQuizAttempts(Array.isArray(quizPayload?.attempts) ? quizPayload.attempts : []);
+      const latestAttempt = quizPayload?.latestAttempt || null;
+      setQuizResult(latestAttempt);
+      setSelectedAttemptId(latestAttempt?._id || "");
+      if (!latestAttempt) {
+        setQuizStartedAt(Date.now());
+      }
+    } catch (error) {
+      console.log(error);
+      setQuizError(error?.response?.data?.message || "Unable to fetch quiz.");
+    } finally {
+      setQuizLoading(false);
+    }
+  };
+
+  const getQuizMetaData = async () => {
+    if (!id) {
+      return;
+    }
+    setQuizMetaLoading(true);
+    try {
+      const courseId = id.split("}")[0];
+      const [masteryRes, scheduleRes, statsRes, analyticsRes] = await Promise.all([
+        axios.get(`${import.meta.env.VITE_API_URL}/course/quiz/mastery/${courseId}`, { withCredentials: true }),
+        axios.get(`${import.meta.env.VITE_API_URL}/course/quiz/schedule/${courseId}`, { withCredentials: true }),
+        axios.get(`${import.meta.env.VITE_API_URL}/course/quiz/stats/${courseId}`, { withCredentials: true }),
+        axios.get(`${import.meta.env.VITE_API_URL}/course/quiz/analytics/${courseId}`, { withCredentials: true }),
+      ]);
+
+      const masteryPayload = getApiData(masteryRes);
+      const schedulePayload = getApiData(scheduleRes);
+      const statsPayload = getApiData(statsRes);
+      const analyticsPayload = getApiData(analyticsRes);
+
+      setQuizMastery(masteryPayload?.mastery || []);
+      setQuizSchedule({
+        dueItems: schedulePayload?.dueItems || [],
+        upcomingItems: schedulePayload?.upcomingItems || [],
+      });
+      setQuizStats(statsPayload || null);
+      setQuizAnalytics({
+        dropoff: analyticsPayload?.dropoff || [],
+        weakTopicHeatmap: analyticsPayload?.weakTopicHeatmap || [],
+      });
+    } catch (error) {
+      console.log(error);
+    } finally {
+      setQuizMetaLoading(false);
+    }
+  };
+
+  const getProgressInsights = async () => {
+    if (!courseIdFromUrl) {
+      return;
+    }
+    setProgressInsightsLoading(true);
+    try {
+      const response = await axios.get(
+        `${import.meta.env.VITE_API_URL}/course/progress/insights/${courseIdFromUrl}`,
+        { withCredentials: true }
+      );
+      const payload = getApiData(response);
+      setProgressInsights(payload || null);
+    } catch (error) {
+      console.log(error);
+    } finally {
+      setProgressInsightsLoading(false);
+    }
+  };
+
+  const handleQuizOptionSelect = (questionIndex, optionIndex) => {
+    if (quizSubmitLoading || quizResult) {
+      return;
+    }
+    setQuizAnswers((prev) => ({
+      ...prev,
+      [questionIndex]: optionIndex,
+    }));
+  };
+
+  const startNewQuizAttempt = () => {
+    setQuizResult(null);
+    setSelectedAttemptId("");
+    setQuizAnswers({});
+    setQuizHintOpenMap({});
+    setQuizError("");
+    setQuizStartedAt(Date.now());
+    getQuizData({ adaptive: true });
+  };
+
+  const startFocusedReQuiz = (conceptTag) => {
+    if (!conceptTag) {
+      return;
+    }
+    setQuizResult(null);
+    setSelectedAttemptId("");
+    setQuizAnswers({});
+    setQuizHintOpenMap({});
+    setQuizError("");
+    setQuizStartedAt(Date.now());
+    getQuizData({
+      adaptive: true,
+      focusConcept: conceptTag,
+    });
+  };
+
+  const jumpToRevisionClip = (clip) => {
+    const target = Math.max(0, parseFloat(clip?.startSeconds || 0));
+    if (playerInstanceRef?.current) {
+      playerInstanceRef.current.currentTime = target;
+      setIsToolsOpen(true);
+      setIsSummaryOpen(false);
+      setIsIdeOpen(false);
+      setIsExcaliOpen(false);
+    }
+  };
+
+  const submitQuiz = async () => {
+    if (!quizData?._id) {
+      return;
+    }
+
+    const answers = quizData.questions.map((_, idx) => quizAnswers[idx]);
+    if (answers.some((item) => typeof item !== "number")) {
+      setQuizError("Please answer all questions before submitting.");
+      return;
+    }
+
+    setQuizSubmitLoading(true);
+    setQuizError("");
+    try {
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/course/quiz/submit`,
+        {
+          quizId: quizData._id,
+          videoDbId: data?.[activeIndex]?._id,
+          answers,
+          timeSpentSeconds: quizStartedAt ? Math.floor((Date.now() - quizStartedAt) / 1000) : 0,
+        },
+        {
+          withCredentials: true,
+        }
+      );
+      const attemptPayload = getApiData(response);
+      const savedAttempt = attemptPayload || null;
+      setQuizResult(savedAttempt);
+      setSelectedAttemptId(savedAttempt?._id || "");
+      setQuizAttempts((prev) => {
+        if (!savedAttempt?._id) {
+          return prev;
+        }
+        const filtered = prev.filter((item) => item?._id !== savedAttempt._id);
+        return [savedAttempt, ...filtered].slice(0, 10);
+      });
+      await getQuizMetaData();
+    } catch (error) {
+      console.log(error);
+      setQuizError(error?.response?.data?.message || "Unable to submit quiz.");
+    } finally {
+      setQuizSubmitLoading(false);
+    }
+  };
+
   useEffect(() => {
     checkAuth();
     getData();
+    getProgressInsights();
     
   }, []);
 
@@ -522,6 +741,20 @@ const CoursePlayer = () => {
   // }, [activeIndex]);
 
   const currentVideoId = data?.[activeIndex]?.videoId;
+  const bestQuizAttempt = (quizAttempts || []).reduce((best, attempt) => {
+    if (!attempt) {
+      return best;
+    }
+    if (!best) {
+      return attempt;
+    }
+    return (attempt?.percentage || 0) > (best?.percentage || 0) ? attempt : best;
+  }, null);
+  const latestQuizAttempt = (quizAttempts || []).length ? quizAttempts[0] : null;
+  const previousQuizAttempt = (quizAttempts || []).length > 1 ? quizAttempts[1] : null;
+  const latestQuizTrendDelta = latestQuizAttempt && previousQuizAttempt
+    ? (latestQuizAttempt?.percentage || 0) - (previousQuizAttempt?.percentage || 0)
+    : null;
   const moduleGroups = data.reduce((acc, video, index) => {
     const moduleKey = video.moduleTitle || "Module: General";
     const savedProgress = JSON.parse(localStorage.getItem(`video_${video.videoId}_progress`));
@@ -811,6 +1044,17 @@ const CoursePlayer = () => {
       //   },3000)
       // }
       // event.detail.plyr.stop();
+      setIsToolsOpen(true);
+      setIsContentOpen(false);
+      setIsChatOpen(false);
+      setIsCardsOpen(false);
+      setIsPracticeOpen(false);
+      setIsQuizOpen(true);
+      setTimeout(() => {
+        getQuizData();
+        getQuizMetaData();
+        getProgressInsights();
+      }, 250);
     });
   }, [currentVideoId]);
 
@@ -1129,6 +1373,7 @@ const CoursePlayer = () => {
                     setIsIdeOpen(false);
                     setIsSummaryOpen(false);
                     setIsExcaliOpen(false);
+                    setIsQuizOpen(false);
                   }}
                   className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
                 >
@@ -1141,6 +1386,7 @@ const CoursePlayer = () => {
                     setIsToolsOpen(false);
                     setIsIdeOpen(false);
                     setIsSummaryOpen(true);
+                    setIsQuizOpen(false);
                   }}
                   className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
                 >
@@ -1154,6 +1400,7 @@ const CoursePlayer = () => {
                     setIsIdeOpen(true);
                     setIsSummaryOpen(false);
                     setIsExcaliOpen(false);
+                    setIsQuizOpen(false);
                   }}
                   className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors border border-white/5 backdrop-blur-md group"
                 >
@@ -1167,6 +1414,7 @@ const CoursePlayer = () => {
                     setIsIdeOpen(false);
                     setIsSummaryOpen(false);
                     setIsExcaliOpen(true);
+                    setIsQuizOpen(false);
                     if(!isExcaliLoaded){
                       try {
                       if(localStorage.getItem(`excali_${courseData?.[0]?._id}`)){
@@ -1232,6 +1480,89 @@ const CoursePlayer = () => {
               <h2 className="text-md md:text-sm font-bold text-zinc-500">
                 {data[activeIndex].channelTitle}
               </h2>
+              <div className="mt-4 border border-white/10 bg-[#111010]/70 rounded-md p-4 max-w-4xl">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
+                    Course Progress
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowDailyTracker((prev) => !prev)}
+                    className="text-[10px] px-2 py-1 rounded-sm border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
+                  >
+                    {showDailyTracker ? "Hide Daily Tracker" : "Show Daily Tracker"}
+                  </button>
+                </div>
+
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
+                    <span>Completed {progressInsights?.percentageCompleted ?? 0}%</span>
+                    <span>Remaining {progressInsights?.remainingPercentage ?? 0}%</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-zinc-800/70 overflow-hidden">
+                    <div
+                      className="h-full bg-[#2563EB] rounded-full"
+                      style={{ width: `${progressInsights?.percentageCompleted ?? 0}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+                  <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
+                    <p className="text-[10px] text-zinc-500 uppercase">Total Hours</p>
+                    <p className="text-sm font-bold text-zinc-100">{progressInsights?.totalDurationHours ?? 0}h</p>
+                  </div>
+                  <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
+                    <p className="text-[10px] text-zinc-500 uppercase">Completed</p>
+                    <p className="text-sm font-bold text-zinc-100">{progressInsights?.completedDurationHours ?? 0}h</p>
+                  </div>
+                  <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
+                    <p className="text-[10px] text-zinc-500 uppercase">Remaining</p>
+                    <p className="text-sm font-bold text-zinc-100">{progressInsights?.remainingDurationHours ?? 0}h</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
+                    <p className="text-[10px] text-zinc-500 uppercase">Priority</p>
+                    <p className="text-sm font-bold text-zinc-100 capitalize">{progressInsights?.planPriority || "medium"}</p>
+                  </div>
+                  <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
+                    <p className="text-[10px] text-zinc-500 uppercase">Auto Target Date</p>
+                    <p className="text-sm font-bold text-zinc-100">
+                      {progressInsights?.targetEndDate ? new Date(progressInsights.targetEndDate).toLocaleDateString() : "NA"}
+                    </p>
+                  </div>
+                  <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
+                    <p className="text-[10px] text-zinc-500 uppercase">Daily Videos Goal</p>
+                    <p className="text-sm font-bold text-zinc-100">{progressInsights?.todaysGoalVideos ?? 0} videos/day</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between text-xs">
+                  <span className="text-zinc-500">
+                    Remaining Videos: {progressInsights?.remainingVideosCount ?? 0}
+                  </span>
+                  <span className="text-blue-400 font-semibold">
+                    Recommended Daily Watch: {progressInsights?.recommendedDailyWatchHours ?? 0}h
+                  </span>
+                </div>
+
+                <div className={`${showDailyTracker ? "" : "hidden"} mt-3 rounded-sm border border-white/10 bg-black/20 px-3 py-3`}>
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] mb-2">Daily Tracker</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                    <span className="text-zinc-300">
+                      Today's Goal: <span className="font-bold text-blue-400">{progressInsights?.todaysGoalVideos ?? 0} videos</span> | <span className="font-bold text-blue-400">{progressInsights?.todaysGoalHours ?? 0}h</span>
+                    </span>
+                    <span className="text-zinc-300">
+                      Actually Completed: <span className="font-bold text-green-400">{progressInsights?.todaysCompletedVideos ?? 0} videos</span> | <span className="font-bold text-green-400">{progressInsights?.todaysCompletedHours ?? 0}h</span>
+                    </span>
+                  </div>
+                </div>
+                <div className={`${progressInsightsLoading ? "" : "hidden"} mt-2 text-xs text-zinc-500`}>
+                  Updating progress insights...
+                </div>
+              </div>
               {/* <div className="max-w-5xl p-3 bg-[#141414] h-fit mt-10 rounded-md">
                 <p className="text-zinc-400 leading-relaxed text-sm md:text-base max-w-4xl ">
                   {data[activeIndex].description}
@@ -1255,6 +1586,7 @@ const CoursePlayer = () => {
                   setIsChatOpen(false);
                   setIsCardsOpen(false);
                   setIsPracticeOpen(false);
+                  setIsQuizOpen(false);
                 }}
                 className="px-5 py-2 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
               >
@@ -1546,6 +1878,7 @@ const CoursePlayer = () => {
                   setIsChatOpen(!isChatOpen);
                   setIsCardsOpen(false);
                   setIsPracticeOpen(false);
+                  setIsQuizOpen(false);
                 }}
                 className="px-5 py-2 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
               >
@@ -1661,6 +1994,7 @@ const CoursePlayer = () => {
                   setIsCardsOpen(!isCardsOpen);
                   setNotesLoading(true);
                   setIsPracticeOpen(false);
+                  setIsQuizOpen(false);
                   getNotesData();
                 }}
                 className="px-5 py-2 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
@@ -1826,7 +2160,434 @@ const CoursePlayer = () => {
                 </div>
               </div>
             </div>
-            {/* 3. PRACTICE ACCORDION */}
+            {/* 3. QUIZ ACCORDION */}
+            <div className="h-fit max-h-133  flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
+              <div
+                onClick={() => {
+                  const nextState = !isQuizOpen;
+                  setIsContentOpen(false);
+                  setIsChatOpen(false);
+                  setIsCardsOpen(false);
+                  setIsPracticeOpen(false);
+                  setIsQuizOpen(nextState);
+                  if (nextState) {
+                    getQuizData();
+                    getQuizMetaData();
+                  }
+                }}
+                className="px-5 py-2 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                    <CircleHelp
+                      size={15}
+                      className={
+                        isQuizOpen ? "text-blue-500" : "text-zinc-500"
+                      }
+                    />
+                    Quiz
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={`text-zinc-500 transition-transform duration-500 ease-in-out ${
+                      isQuizOpen ? "rotate-180" : "rotate-0"
+                    }`}
+                  />
+                </div>
+                <span className="text-[10px] text-zinc-500">
+                  {quizResult
+                    ? `${quizResult?.percentage || 0}%`
+                    : quizAttempts?.length
+                      ? `Best ${bestQuizAttempt?.percentage || 0}%`
+                      : "Not attempted"}
+                </span>
+              </div>
+
+              <div
+                className={`grid transition-[grid-template-rows] duration-500 ease-in-out ${
+                  isQuizOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                }`}
+              >
+                <div className="overflow-hidden">
+                  <div className="flex flex-col h-fit max-h-133 p-3 space-y-3 overflow-y-auto custom-scrollbar">
+                    {quizLoading ? (
+                      <div className="flex items-center justify-center py-10 text-sm text-zinc-500">
+                        Preparing quiz...
+                      </div>
+                    ) : quizError ? (
+                      <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-md p-3">
+                        {quizError}
+                      </div>
+                    ) : !quizData?.questions?.length ? (
+                      <div className="text-sm text-zinc-500">No quiz available for this video yet.</div>
+                    ) : !quizResult ? (
+                      <div className="space-y-3">
+                        {quizData.questions.map((item, idx) => (
+                          <div key={idx} className="rounded-md border border-white/10 bg-black/20 p-3">
+                            <p className="text-sm text-zinc-200 font-semibold">
+                              Q{idx + 1}. {item.question}
+                            </p>
+                            <div className="mt-2 space-y-2">
+                              {item.options.map((option, optIdx) => (
+                                <button
+                                  key={optIdx}
+                                  type="button"
+                                  onClick={() => handleQuizOptionSelect(idx, optIdx)}
+                                  className={`w-full text-left text-xs rounded-sm border px-3 py-2 transition-colors ${
+                                    quizAnswers[idx] === optIdx
+                                      ? "border-[#2563EB]/50 bg-[#2563EB]/10 text-zinc-100"
+                                      : "border-white/10 bg-white/3 text-zinc-300 hover:bg-white/5"
+                                  }`}
+                                >
+                                  {option}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="mt-2 text-[10px] text-zinc-500">
+                              {item.conceptTag} | {item.difficulty}
+                            </div>
+                            <div className="mt-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setQuizHintOpenMap((prev) => ({
+                                    ...prev,
+                                    [idx]: !prev[idx],
+                                  }))
+                                }
+                                className="text-[10px] px-2 py-1 rounded-sm border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
+                              >
+                                {quizHintOpenMap[idx] ? "Hide Hint" : "Show Hint"}
+                              </button>
+                              <p className={`mt-2 text-xs text-blue-300 ${quizHintOpenMap[idx] ? "" : "hidden"}`}>
+                                {item.hint || "Focus on the key idea and eliminate distractors."}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+
+                        <button
+                          type="button"
+                          onClick={submitQuiz}
+                          disabled={quizSubmitLoading}
+                          className="w-full bg-[#2563EB] hover:bg-[#1d4fd8] text-black font-bold py-2.5 rounded-md disabled:opacity-70"
+                        >
+                          {quizSubmitLoading ? "Submitting..." : "Submit Quiz"}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs text-zinc-500 uppercase tracking-[0.2em]">Quiz Controls</p>
+                            <button
+                              type="button"
+                              onClick={startNewQuizAttempt}
+                              className="text-xs px-3 py-1.5 rounded-sm bg-[#2563EB] text-black font-bold hover:bg-[#1d4fd8]"
+                            >
+                              Retake Quiz
+                            </button>
+                          </div>
+                          <p className="text-xs text-zinc-400 mt-2">
+                            Start a fresh attempt for this video and compare with past performance.
+                          </p>
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            <div className="rounded-sm border border-green-500/20 bg-green-500/10 px-2 py-2">
+                              <p className="text-[10px] text-green-400 uppercase tracking-[0.2em]">Best Score</p>
+                              <p className="text-sm font-bold text-zinc-100">
+                                {bestQuizAttempt ? `${bestQuizAttempt?.percentage || 0}%` : "NA"}
+                              </p>
+                            </div>
+                            <div className={`rounded-sm border px-2 py-2 ${
+                              latestQuizTrendDelta === null
+                                ? "border-white/10 bg-white/5"
+                                : latestQuizTrendDelta >= 0
+                                  ? "border-blue-500/20 bg-blue-500/10"
+                                  : "border-red-500/20 bg-red-500/10"
+                            }`}>
+                              <p className={`text-[10px] uppercase tracking-[0.2em] ${
+                                latestQuizTrendDelta === null
+                                  ? "text-zinc-400"
+                                  : latestQuizTrendDelta >= 0
+                                    ? "text-blue-400"
+                                    : "text-red-400"
+                              }`}>
+                                Trend
+                              </p>
+                              <p className="text-sm font-bold text-zinc-100">
+                                {latestQuizTrendDelta === null
+                                  ? "Need 2 attempts"
+                                  : latestQuizTrendDelta >= 0
+                                    ? `+${latestQuizTrendDelta}%`
+                                    : `${latestQuizTrendDelta}%`}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs text-zinc-500 uppercase tracking-[0.2em] mb-2">Attempt History</p>
+                          <div className="space-y-2 max-h-36 overflow-y-auto custom-scrollbar">
+                            {(quizAttempts || []).length ? (
+                              (quizAttempts || []).map((attempt, idx) => (
+                                <button
+                                  key={attempt?._id || idx}
+                                  type="button"
+                                  onClick={() => {
+                                    setQuizResult(attempt || null);
+                                    setSelectedAttemptId(attempt?._id || "");
+                                  }}
+                                  className={`w-full text-left rounded-sm border px-3 py-2 transition-colors ${
+                                    selectedAttemptId === attempt?._id
+                                      ? "border-[#2563EB]/40 bg-[#2563EB]/10"
+                                      : "border-white/10 bg-white/3 hover:bg-white/5"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="text-zinc-300 font-semibold">
+                                      Attempt {quizAttempts.length - idx}
+                                    </span>
+                                    <span className="text-blue-400 font-bold">
+                                      {attempt?.percentage || 0}%
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] text-zinc-500 mt-1">
+                                    {attempt?.createdAt ? new Date(attempt.createdAt).toLocaleString() : "Unknown time"}
+                                  </div>
+                                </button>
+                              ))
+                            ) : (
+                              <p className="text-xs text-zinc-500">No previous attempts.</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs text-zinc-500 uppercase tracking-[0.2em] mb-2">Streak & Consistency</p>
+                          {quizMetaLoading ? (
+                            <p className="text-xs text-zinc-500">Loading stats...</p>
+                          ) : (
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="rounded-sm border border-white/10 bg-white/5 px-2 py-2">
+                                <p className="text-[10px] text-zinc-500 uppercase">Streak</p>
+                                <p className="text-sm text-zinc-100 font-bold">{quizStats?.streak ?? 0} days</p>
+                              </div>
+                              <div className="rounded-sm border border-white/10 bg-white/5 px-2 py-2">
+                                <p className="text-[10px] text-zinc-500 uppercase">Consistency</p>
+                                <p className="text-sm text-zinc-100 font-bold">{quizStats?.consistencyScore ?? 0}%</p>
+                              </div>
+                              <div className="rounded-sm border border-white/10 bg-white/5 px-2 py-2">
+                                <p className="text-[10px] text-zinc-500 uppercase">Avg Score</p>
+                                <p className="text-sm text-zinc-100 font-bold">{quizStats?.avgScore ?? 0}%</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs text-zinc-500 uppercase tracking-[0.2em] mb-2">Topic Mastery</p>
+                          {quizMetaLoading ? (
+                            <p className="text-xs text-zinc-500">Loading mastery...</p>
+                          ) : quizMastery?.length ? (
+                            <div className="space-y-2 max-h-42 overflow-y-auto custom-scrollbar">
+                              {quizMastery.slice(0, 12).map((item, idx) => (
+                                <div key={idx} className="text-xs text-zinc-300">
+                                  <div className="flex items-center justify-between">
+                                    <span>{item.conceptTag}</span>
+                                    <span className={`${
+                                      item.status === "mastered"
+                                        ? "text-green-400"
+                                        : item.status === "improving"
+                                          ? "text-blue-400"
+                                          : "text-red-400"
+                                    }`}>{item.accuracy}%</span>
+                                  </div>
+                                  <div className="h-1 mt-1 rounded-full bg-zinc-800 overflow-hidden">
+                                    <div className={`h-full rounded-full ${
+                                      item.status === "mastered"
+                                        ? "bg-green-500"
+                                        : item.status === "improving"
+                                          ? "bg-blue-500"
+                                          : "bg-red-500"
+                                    }`} style={{ width: `${item.accuracy}%` }} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-zinc-500">Mastery data will appear after quiz attempts.</p>
+                          )}
+                        </div>
+
+                        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs text-zinc-500 uppercase tracking-[0.2em] mb-2">Spaced Re-Quiz Queue (1/3/7)</p>
+                          {quizMetaLoading ? (
+                            <p className="text-xs text-zinc-500">Loading schedule...</p>
+                          ) : (
+                            <div className="space-y-2">
+                              <div>
+                                <p className="text-[10px] text-zinc-500 mb-1">Due Now</p>
+                                <div className="space-y-1 max-h-28 overflow-y-auto custom-scrollbar">
+                                  {(quizSchedule?.dueItems || []).length ? (
+                                    (quizSchedule?.dueItems || []).map((item, idx) => (
+                                      <div key={item?._id || idx} className="flex items-center justify-between gap-2 border border-white/10 rounded-sm px-2 py-1.5 bg-white/5">
+                                        <span className="text-xs text-zinc-300 truncate">{item?.conceptTag}</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => startFocusedReQuiz(item?.conceptTag)}
+                                          className="text-[10px] px-2 py-1 rounded-sm bg-[#2563EB] text-black font-bold"
+                                        >
+                                          Re-Quiz
+                                        </button>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <p className="text-xs text-zinc-500">No due concepts.</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-zinc-500 mb-1">Upcoming</p>
+                                <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar">
+                                  {(quizSchedule?.upcomingItems || []).slice(0, 6).map((item, idx) => (
+                                    <div key={item?._id || idx} className="text-xs text-zinc-400 border border-white/10 rounded-sm px-2 py-1 bg-white/3">
+                                      {item?.conceptTag} | {item?.nextReviewAt ? new Date(item.nextReviewAt).toLocaleDateString() : "TBD"}
+                                    </div>
+                                  ))}
+                                  {!(quizSchedule?.upcomingItems || []).length && (
+                                    <p className="text-xs text-zinc-500">No upcoming items.</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                          <div className="flex items-center justify-between text-sm">
+                            <p className="text-zinc-300 font-semibold">Your Score</p>
+                            <p className="text-blue-400 font-bold">
+                              {quizResult?.score}/{quizResult?.totalQuestions} ({quizResult?.percentage}%)
+                            </p>
+                          </div>
+                          <p className="text-xs text-zinc-400 mt-2">{quizResult?.overallFeedback}</p>
+                        </div>
+
+                        <div className={`rounded-md border border-white/10 bg-black/20 p-3 ${
+                          (quizResult?.revisionClips || []).length ? "" : "hidden"
+                        }`}>
+                          <p className="text-xs text-zinc-500 uppercase tracking-[0.2em] mb-2">Revision Clip Points</p>
+                          <div className="space-y-2">
+                            {(quizResult?.revisionClips || []).map((clip, idx) => (
+                              <div key={idx} className="border border-white/10 rounded-sm bg-white/5 px-2 py-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs text-zinc-200">{clip?.conceptTag}</p>
+                                  <button
+                                    type="button"
+                                    onClick={() => jumpToRevisionClip(clip)}
+                                    className="text-[10px] px-2 py-1 rounded-sm bg-[#2563EB] text-black font-bold"
+                                  >
+                                    Jump To Clip
+                                  </button>
+                                </div>
+                                <p className="text-[10px] text-zinc-500 mt-1">{clip?.label} | {clip?.reason}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs text-zinc-500 uppercase tracking-[0.2em] mb-2">Concept Analysis</p>
+                          <div className="space-y-2">
+                            {(quizResult?.conceptBreakdown || []).map((item, idx) => (
+                              <div key={idx} className="text-xs text-zinc-300">
+                                <div className="flex items-center justify-between">
+                                  <span>{item.key}</span>
+                                  <span>{item.correct}/{item.total} ({item.accuracy}%)</span>
+                                </div>
+                                <div className="h-1 mt-1 rounded-full bg-zinc-800 overflow-hidden">
+                                  <div className="h-full rounded-full bg-[#2563EB]" style={{ width: `${item.accuracy}%` }} />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs text-zinc-500 uppercase tracking-[0.2em] mb-2">Recommendations</p>
+                          <div className="space-y-1">
+                            {(quizResult?.recommendedActions || []).map((item, idx) => (
+                              <p key={idx} className="text-xs text-zinc-300">{idx + 1}. {item}</p>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          {(quizResult?.questionReview || []).map((item, idx) => (
+                            <div key={idx} className={`rounded-md border p-3 ${item.isCorrect ? "border-green-500/30 bg-green-500/5" : "border-red-500/30 bg-red-500/5"}`}>
+                              <p className="text-sm text-zinc-100">Q{idx + 1}. {item.question}</p>
+                              <p className="text-xs mt-1 text-zinc-300">Your answer: {item.selectedOption || "Not answered"}</p>
+                              <p className="text-xs text-zinc-300">Correct answer: {item.correctOption}</p>
+                              <p className="text-xs text-zinc-400 mt-1">{item.explanation}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs text-zinc-500 uppercase tracking-[0.2em] mb-2">Instructor Analytics</p>
+                          {quizMetaLoading ? (
+                            <p className="text-xs text-zinc-500">Loading analytics...</p>
+                          ) : (
+                            <div className="space-y-3">
+                              <div>
+                                <p className="text-[10px] text-zinc-500 mb-1">Weak Topic Heatmap</p>
+                                <div className="space-y-1 max-h-28 overflow-y-auto custom-scrollbar">
+                                  {(quizAnalytics?.weakTopicHeatmap || []).slice(0, 10).map((item, idx) => (
+                                    <div key={idx} className="text-xs text-zinc-300">
+                                      <div className="flex items-center justify-between">
+                                        <span>{item.topic}</span>
+                                        <span>{item.accuracy}%</span>
+                                      </div>
+                                      <div className="h-1 mt-1 rounded-full bg-zinc-800 overflow-hidden">
+                                        <div className="h-full rounded-full bg-red-500" style={{ width: `${item.intensity}%` }} />
+                                      </div>
+                                    </div>
+                                  ))}
+                                  {!(quizAnalytics?.weakTopicHeatmap || []).length && (
+                                    <p className="text-xs text-zinc-500">No heatmap data yet.</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-zinc-500 mb-1">Drop-Off by Video</p>
+                                <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
+                                  {(quizAnalytics?.dropoff || []).slice(0, 12).map((item, idx) => (
+                                    <div key={idx} className="border border-white/10 rounded-sm bg-white/5 px-2 py-2">
+                                      <p className="text-xs text-zinc-300 truncate">
+                                        {item.sequence}. {item.title}
+                                      </p>
+                                      <div className="flex items-center justify-between text-[10px] text-zinc-500 mt-1">
+                                        <span>Completion {item.completion}%</span>
+                                        <span>Quiz Avg {item.avgQuizScore}%</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  {!(quizAnalytics?.dropoff || []).length && (
+                                    <p className="text-xs text-zinc-500">No drop-off data yet.</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. PRACTICE ACCORDION */}
             <div className="h-fit max-h-133  flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
               {/* Header */}
               <div
@@ -1835,6 +2596,7 @@ const CoursePlayer = () => {
                   setIsChatOpen(false);
                   setIsCardsOpen(false);
                   setIsPracticeOpen(!isPracticeOpen);
+                  setIsQuizOpen(false);
                   // getProblemsData();
                 }} 
                 className="px-5 py-2 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
