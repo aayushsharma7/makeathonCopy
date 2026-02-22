@@ -12,6 +12,7 @@ const normalizeTopics = (topicText = "") => {
 }
 
 const normalizeText = (text = "") => `${text}`.toLowerCase();
+const compactText = (text = "") => `${text || ""}`.replace(/\s+/g, " ").trim();
 
 const getDaysSince = (dateStr) => {
     if(!dateStr){
@@ -137,6 +138,69 @@ const getTrustScore = (subscriberCount) => {
     return Math.min(1, Math.log10(subscribers + 1) / 6);
 };
 
+const shouldExcludePlaylist = (title = "", description = "") => {
+    const text = normalizeText(`${title} ${description}`);
+    const weakSignals = [
+        "one shot", "oneshot", "shorts", "single video", "crash course", "part 1", "lecture 1 only"
+    ];
+    return weakSignals.some((signal) => text.includes(signal));
+}
+
+const parseChatSignals = (messages = []) => {
+    const userMessages = (messages || []).filter((item) => item?.role === "user");
+    const merged = normalizeText(userMessages.map((item) => item?.content || "").join(" "));
+    const latest = normalizeText(userMessages[userMessages.length - 1]?.content || "");
+
+    const goalSignals = [];
+    if(/dsa|data structure|algorithm|leetcode/.test(merged)){
+        goalSignals.push("dsa");
+    }
+    if(/react|frontend|front end|javascript/.test(merged)){
+        goalSignals.push("react");
+    }
+    if(/backend|node|express/.test(merged)){
+        goalSignals.push("backend");
+    }
+    if(/ai|ml|machine learning|deep learning|llm/.test(merged)){
+        goalSignals.push("ai-ml");
+    }
+
+    const timeMatch = merged.match(/(\d+(?:\.\d+)?)\s*(hour|hr|hrs|hours|minute|min|mins|minutes)/);
+    const languageMatch = merged.match(/\b(javascript|typescript|python|java|c\+\+|c|go|rust|hindi|english)\b/);
+    const backgroundSignals = ["beginner", "intermediate", "advanced", "fresher", "experienced"].find((item) => merged.includes(item)) || "";
+
+    const goalText = compactText(latest || merged).slice(0, 220);
+    return {
+        goal: goalText,
+        background: backgroundSignals ? compactText(backgroundSignals) : "",
+        timePerDay: timeMatch ? compactText(timeMatch[0]) : "",
+        preferredLanguage: languageMatch ? compactText(languageMatch[1]) : "",
+        goalSignals
+    };
+}
+
+const buildMissingPrompt = ({ goal = "", background = "", timePerDay = "", preferredLanguage = "" }) => {
+    const missing = [];
+    if(!goal){
+        missing.push("goal");
+    }
+    if(!background){
+        missing.push("current level/background");
+    }
+    if(!timePerDay){
+        missing.push("time/day");
+    }
+    if(!preferredLanguage){
+        missing.push("preferred language");
+    }
+
+    if(!missing.length){
+        return "Great, I have enough context. Click Get Recommendations and I will shortlist trusted, complete, and up-to-date playlists.";
+    }
+
+    return `Share ${missing.join(", ")} so I can recommend the best complete playlist.`;
+}
+
 export const path1ProfileController = async (req,res) => {
     try {
         const answers = req.body?.answers || {};
@@ -163,20 +227,31 @@ export const path1ProfileController = async (req,res) => {
 export const path2ChatController = async (req,res) => {
     try {
         const {messages = []} = req.body;
+        const signals = parseChatSignals(messages);
         const latestMessage = normalizeText(messages?.[messages.length - 1]?.content || "");
-        let reply = "Share your target role, current level, and time/day. I will shortlist trusted and up-to-date full playlists.";
+        let reply = "Tell me your goal, current level, available time/day, and preferred language. I will shortlist trusted and up-to-date full playlists.";
 
-        if(latestMessage.includes("dsa") || latestMessage.includes("data structure") || latestMessage.includes("algorithms")){
-            reply = "For DSA, I will prioritize complete playlists that include arrays, strings, linked lists, trees, graphs, recursion, DP, and interview-level problems. Share your timeline and language preference.";
-        } else if(latestMessage.includes("react") || latestMessage.includes("frontend")){
-            reply = "I will prioritize trusted React playlists that include hooks, routing, projects, and modern best practices. Share your current JS level and target timeline.";
-        } else if(latestMessage.length === 0){
+        if(latestMessage.length === 0){
             reply = "Hi! Tell me what you want to learn, your current level, time/day, and preferred language. Then click Get Recommendations.";
+        } else if(signals.goalSignals.includes("dsa")){
+            reply = `For DSA, I will prioritize complete playlists covering arrays, strings, linked lists, recursion, trees, graphs, and DP. ${buildMissingPrompt(signals)}`;
+        } else if(signals.goalSignals.includes("react")){
+            reply = `For React, I will prioritize trusted playlists that cover hooks, routing, state management, APIs, and projects. ${buildMissingPrompt(signals)}`;
+        } else if(signals.goalSignals.includes("ai-ml")){
+            reply = `For AI/ML, I will prioritize updated playlists with practical implementation and core theory balance. ${buildMissingPrompt(signals)}`;
+        } else {
+            reply = buildMissingPrompt(signals);
         }
 
         return sendSuccess(res, 200, "Chat response generated", {
             role: "assistant",
-            content: reply
+            content: reply,
+            extracted: {
+                goal: signals.goal,
+                background: signals.background,
+                timePerDay: signals.timePerDay,
+                preferredLanguage: signals.preferredLanguage
+            }
         });
     } catch (error) {
         console.log(error);
@@ -187,11 +262,19 @@ export const path2ChatController = async (req,res) => {
 export const path2RecommendController = async (req,res) => {
     try {
         const {goal = "", background = "", timePerDay = "", preferredLanguage = ""} = req.body;
+        const normalizedGoal = compactText(goal);
+        const normalizedBackground = compactText(background);
+        const normalizedTimePerDay = compactText(timePerDay);
+        const normalizedPreferredLanguage = compactText(preferredLanguage);
+
+        if(!normalizedGoal || normalizedGoal.length < 6){
+            return sendError(res, 400, "Please provide a clearer learning goal");
+        }
         if(!process.env.YT_API_KEY){
             return sendError(res, 500, "YouTube API key is missing");
         }
 
-        const track = resolveTrack(goal, preferredLanguage);
+        const track = resolveTrack(normalizedGoal, normalizedPreferredLanguage);
         const searchResults = await Promise.all(
             track.queryPack.map((query) =>
                 axios.get(`${YOUTUBE_API_BASE}/search`, {
@@ -249,20 +332,36 @@ export const path2RecommendController = async (req,res) => {
                 const playlistId = playlist?.id;
                 const playlistTitle = playlist?.snippet?.title || "Untitled Playlist";
                 const playlistDescription = playlist?.snippet?.description || "";
+                if(shouldExcludePlaylist(playlistTitle, playlistDescription)){
+                    return null;
+                }
                 const channelTitle = playlist?.snippet?.channelTitle || "Unknown Channel";
                 const channelId = playlist?.snippet?.channelId || "";
                 const itemCount = Number(playlist?.contentDetails?.itemCount || 0);
+                if(itemCount < track.minimumVideos){
+                    return null;
+                }
 
-                const playlistItemsResponse = await axios.get(`${YOUTUBE_API_BASE}/playlistItems`, {
-                    params: {
-                        key: process.env.YT_API_KEY,
-                        part: "snippet",
-                        playlistId,
-                        maxResults: 40
+                let pageToken = "";
+                const playlistVideos = [];
+                for(let i = 0; i < 3; i++){
+                    const playlistItemsResponse = await axios.get(`${YOUTUBE_API_BASE}/playlistItems`, {
+                        params: {
+                            key: process.env.YT_API_KEY,
+                            part: "snippet",
+                            playlistId,
+                            maxResults: 50,
+                            pageToken: pageToken || undefined
+                        }
+                    });
+                    const batch = playlistItemsResponse?.data?.items || [];
+                    playlistVideos.push(...batch);
+                    pageToken = playlistItemsResponse?.data?.nextPageToken || "";
+                    if(!pageToken){
+                        break;
                     }
-                });
+                }
 
-                const playlistVideos = playlistItemsResponse?.data?.items || [];
                 const latestVideoDate = playlistVideos
                     .map((item) => item?.snippet?.publishedAt)
                     .filter(Boolean)
@@ -282,12 +381,14 @@ export const path2RecommendController = async (req,res) => {
                 const freshnessScore = getFreshnessScore(daysSinceLastUpdate);
                 const trustScore = getTrustScore(channelsMap[channelId]?.statistics?.subscriberCount || 0);
                 const completenessScore = Math.min(1, itemCount / track.targetVideos);
+                const titleQualityBoost = /complete|full course|playlist|roadmap|bootcamp/.test(normalizeText(playlistTitle)) ? 0.08 : 0;
+                const adjustedCoverage = Math.min(1, coverageScore + titleQualityBoost);
 
                 const qualityScore = (
-                    (coverageScore * 45) +
-                    (trustScore * 25) +
+                    (adjustedCoverage * 45) +
+                    (trustScore * 27) +
                     (completenessScore * 20) +
-                    (freshnessScore * 10)
+                    (freshnessScore * 8)
                 );
 
                 return {
@@ -297,7 +398,7 @@ export const path2RecommendController = async (req,res) => {
                     channelTitle,
                     subscriberCount: Number(channelsMap[channelId]?.statistics?.subscriberCount || 0),
                     videoCount: itemCount,
-                    coverageScore,
+                    coverageScore: adjustedCoverage,
                     completenessScore,
                     freshnessScore,
                     qualityScore: Number(qualityScore.toFixed(2)),
@@ -315,6 +416,7 @@ export const path2RecommendController = async (req,res) => {
             .filter((item) => item.videoCount >= track.minimumVideos)
             .filter((item) => item.freshnessScore >= 0.25)
             .filter((item) => item.coverageScore >= track.minCoverage)
+            .filter((item) => item.subscriberCount >= 25000 || item.qualityScore >= 75)
             .sort((a, b) => b.qualityScore - a.qualityScore)
             .slice(0, 5);
 
@@ -337,7 +439,7 @@ export const path2RecommendController = async (req,res) => {
                 lastUpdated: item.lastUpdated,
                 score: item.qualityScore,
                 matchedTopics: item.matchedTopics,
-                reason: `High confidence match for ${goal || "your goal"} with strong topic coverage (${matchedTopicsText}), ${item.videoCount} videos, and ${trustedChannelText}.`
+                reason: `High confidence match for ${normalizedGoal || "your goal"} with strong topic coverage (${matchedTopicsText}), ${item.videoCount} videos, and ${trustedChannelText}.`
             };
         });
 
@@ -346,11 +448,11 @@ export const path2RecommendController = async (req,res) => {
         const createdProfile = await OnboardingProfile.create({
             owner: req.user.username,
             path: "path2",
-            goal,
+            goal: normalizedGoal,
             answers: {
-                background,
-                timePerDay,
-                preferredLanguage
+                background: normalizedBackground,
+                timePerDay: normalizedTimePerDay,
+                preferredLanguage: normalizedPreferredLanguage
             },
             recommendations
         });

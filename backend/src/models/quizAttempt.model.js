@@ -28,7 +28,10 @@ const questionReviewSchema = new mongoose.Schema({
     isCorrect: Boolean,
     conceptTag: String,
     difficulty: String,
-    explanation: String
+    explanation: String,
+    sourceStartSeconds: Number,
+    sourceEndSeconds: Number,
+    sourceContext: String
 }, { _id: false });
 
 const revisionClipSchema = new mongoose.Schema({

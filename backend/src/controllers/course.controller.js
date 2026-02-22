@@ -114,6 +114,46 @@ const buildPace = ({timePerDay, goalUrgency}) => {
     return "Deep";
 }
 
+const parseDailyHoursFromText = (timeText = "") => {
+    const lower = `${timeText || ""}`.toLowerCase();
+    if(!lower.trim()){
+        return 0;
+    }
+
+    const rangeMatch = lower.match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)/);
+    if(rangeMatch){
+        const a = parseFloat(rangeMatch[1]);
+        const b = parseFloat(rangeMatch[2]);
+        if(!Number.isNaN(a) && !Number.isNaN(b)){
+            return Number((((a + b) / 2)).toFixed(2));
+        }
+    }
+
+    const hourMatch = lower.match(/(\d+(?:\.\d+)?)\s*(hour|hr|hrs|hours)/);
+    if(hourMatch){
+        const value = parseFloat(hourMatch[1]);
+        return Number((Number.isNaN(value) ? 0 : value).toFixed(2));
+    }
+
+    const minuteMatch = lower.match(/(\d+(?:\.\d+)?)\s*(minute|min|mins|minutes)/);
+    if(minuteMatch){
+        const mins = parseFloat(minuteMatch[1]);
+        if(!Number.isNaN(mins)){
+            return Number((mins / 60).toFixed(2));
+        }
+    }
+
+    const plainNumber = parseFloat(lower);
+    if(!Number.isNaN(plainNumber)){
+        if(plainNumber > 12){
+            return Number((plainNumber / 60).toFixed(2));
+        }
+        return Number(plainNumber.toFixed(2));
+    }
+
+    return 0;
+}
+
 const getPlaylistIdFromUrl = (url = "") => {
     if(!url){
         return "";
@@ -303,102 +343,502 @@ const safeJsonParse = (text = "") => {
     }
 }
 
+const toTitleCase = (text = "") => {
+    return `${text || ""}`
+        .split(" ")
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+}
+
+const sanitizeModuleTitle = (rawTitle = "", fallback = "General") => {
+    const clean = `${rawTitle || ""}`.replace(/^module\s*:\s*/i, "").trim();
+    const base = clean || fallback;
+    return `Module: ${toTitleCase(base)}`;
+}
+
+const getModuleBucketsBySubject = (subject = "general") => {
+    const normalized = normalizeSubject(subject);
+    if(normalized === "dsa"){
+        return [
+            { title: "Foundations", topic: "foundations", keys: ["intro", "complexity", "big o", "analysis", "basics"] },
+            { title: "Arrays and Strings", topic: "arrays-strings", keys: ["array", "string", "two pointer", "sliding window", "prefix"] },
+            { title: "Linked Lists and Stacks", topic: "linear-ds", keys: ["linked list", "stack", "queue", "deque"] },
+            { title: "Recursion and Backtracking", topic: "recursion-backtracking", keys: ["recursion", "backtracking", "subset", "permutation"] },
+            { title: "Trees and BST", topic: "trees", keys: ["tree", "bst", "binary tree", "traversal", "lca"] },
+            { title: "Heap and Greedy", topic: "heap-greedy", keys: ["heap", "priority queue", "greedy"] },
+            { title: "Graphs", topic: "graphs", keys: ["graph", "bfs", "dfs", "topological", "disjoint set", "union find"] },
+            { title: "Dynamic Programming", topic: "dynamic-programming", keys: ["dynamic programming", "dp", "memoization", "tabulation"] },
+            { title: "Interview Problems", topic: "interview", keys: ["problem", "question", "interview", "contest"] }
+        ];
+    }
+    if(normalized === "web-development"){
+        return [
+            { title: "Foundations", topic: "foundations", keys: ["intro", "setup", "environment", "basics"] },
+            { title: "HTML and CSS", topic: "html-css", keys: ["html", "css", "layout", "responsive", "tailwind"] },
+            { title: "JavaScript Core", topic: "javascript-core", keys: ["javascript", "js", "dom", "event", "promise", "async"] },
+            { title: "React", topic: "react", keys: ["react", "jsx", "component", "hook", "state", "router"] },
+            { title: "Backend and APIs", topic: "backend-api", keys: ["node", "express", "api", "auth", "middleware"] },
+            { title: "Database and Deployment", topic: "db-deploy", keys: ["mongodb", "sql", "database", "deploy", "production"] }
+        ];
+    }
+
+    return [
+        { title: "Foundations", topic: "foundations", keys: ["intro", "setup", "basics", "fundamental"] },
+        { title: "Core Concepts", topic: "core-concepts", keys: ["concept", "theory", "principle", "core"] },
+        { title: "Hands-on Practice", topic: "practice", keys: ["project", "practice", "example", "demo", "problem"] },
+        { title: "Advanced and Review", topic: "advanced-review", keys: ["advanced", "optimization", "revision", "summary", "interview"] }
+    ];
+}
+
+const buildFallbackModulePlan = ({ videoDocs = [], subject = "general" }) => {
+    const buckets = getModuleBucketsBySubject(subject);
+    const moduleMap = {};
+
+    videoDocs.forEach((video, index) => {
+        const text = `${video.title || ""} ${video.description || ""} ${(video.topicTags || []).join(" ")}`.toLowerCase();
+        const matched = buckets.find((bucket) => bucket.keys.some((key) => text.includes(key)));
+        const selected = matched || buckets[Math.min(index < 2 ? 0 : 1, buckets.length - 1)];
+        const moduleTitle = sanitizeModuleTitle(selected?.title || "General");
+        if(!moduleMap[moduleTitle]){
+            moduleMap[moduleTitle] = {
+                title: moduleTitle,
+                topic: selected?.topic || "general",
+                videoIndexes: []
+            };
+        }
+        moduleMap[moduleTitle].videoIndexes.push(index);
+    });
+
+    const plan = Object.values(moduleMap).filter((item) => item.videoIndexes.length > 0);
+    if(!plan.length){
+        return [{
+            title: "Module: General",
+            topic: "general",
+            videoIndexes: videoDocs.map((_, idx) => idx)
+        }];
+    }
+
+    return plan;
+}
+
+const normalizeModulePlan = ({ rawPlan, totalVideos }) => {
+    const rawModules = Array.isArray(rawPlan?.modules) ? rawPlan.modules : [];
+    const normalized = [];
+    const used = new Set();
+
+    rawModules.forEach((moduleItem, moduleIdx) => {
+        const rawIndexes = Array.isArray(moduleItem?.videoIndexes) ? moduleItem.videoIndexes : [];
+        const cleanedIndexes = rawIndexes
+            .map((value) => parseInt(value, 10))
+            .filter((value) => Number.isInteger(value) && value >= 0 && value < totalVideos)
+            .filter((value) => {
+                if(used.has(value)){
+                    return false;
+                }
+                used.add(value);
+                return true;
+            });
+
+        if(!cleanedIndexes.length){
+            return;
+        }
+
+        normalized.push({
+            title: sanitizeModuleTitle(moduleItem?.title || `Module ${moduleIdx + 1}`, "General"),
+            topic: `${moduleItem?.topic || "general"}`.trim().toLowerCase() || "general",
+            milestone: `${moduleItem?.milestone || ""}`.trim(),
+            videoIndexes: cleanedIndexes
+        });
+    });
+
+    const missing = [];
+    for(let index = 0; index < totalVideos; index++){
+        if(!used.has(index)){
+            missing.push(index);
+        }
+    }
+
+    if(missing.length){
+        normalized.push({
+            title: "Module: Additional Concepts",
+            topic: "general",
+            milestone: "",
+            videoIndexes: missing
+        });
+    }
+
+    return normalized;
+}
+
+const isWeakModulePlan = ({ modules = [], totalVideos = 0 }) => {
+    if(!modules.length){
+        return true;
+    }
+    if(totalVideos <= 4){
+        return false;
+    }
+
+    const singletonCount = modules.filter((item) => (item.videoIndexes || []).length === 1).length;
+    const singletonRatio = singletonCount / modules.length;
+    const genericTitleCount = modules.filter((item) => {
+        const title = `${item?.title || ""}`.toLowerCase();
+        return title.includes("general") || title.includes("additional concepts") || /module:\s*(module\s*)?\d+/.test(title);
+    }).length;
+    const tooManyModules = modules.length > Math.max(10, Math.ceil(totalVideos * 0.5));
+
+    if(singletonRatio > 0.4 && totalVideos >= 8){
+        return true;
+    }
+    if(genericTitleCount >= Math.ceil(modules.length * 0.7) && totalVideos >= 6){
+        return true;
+    }
+    if(tooManyModules){
+        return true;
+    }
+    return false;
+}
+
+const buildStructuredModulePlan = async ({ videoDocs = [], subject = "general", personalization = {} }) => {
+    if(!videoDocs.length){
+        return [];
+    }
+
+    const fallbackModules = buildFallbackModulePlan({ videoDocs, subject });
+    try {
+        const compactVideoList = videoDocs.map((video, index) => ({
+            index,
+            title: `${video.title || ""}`.slice(0, 140),
+            tags: (video.topicTags || []).slice(0, 4),
+            durationMinutes: parseIsoDurationToMinutes(video.duration || "PT0S")
+        }));
+
+        const result = await generateText({
+            model: groq('llama-3.3-70b-versatile'),
+            temperature: 0.1,
+            maxTokens: 1800,
+            messages: [
+                {
+                    role: "system",
+                    content: `You are a strict JSON API that structures a video course into coherent learning modules.
+Return only JSON:
+{
+  "modules":[
+    {
+      "title":"string",
+      "topic":"string",
+      "milestone":"string",
+      "videoIndexes":[0,1,2]
+    }
+  ]
+}
+Rules:
+- Group by topic coherence and learning progression.
+- Never create random/single-video noisy modules unless absolutely necessary.
+- Prefer 4 to 10 modules for larger playlists.
+- Every index must appear exactly once.
+- Keep module titles short and clear.
+- Maintain practical progression: fundamentals -> core -> advanced -> revision/interview/project.
+`
+                },
+                {
+                    role: "user",
+                    content: JSON.stringify({
+                        subject,
+                        targetGoal: personalization?.targetGoal || "",
+                        knownTopics: personalization?.knownTopics || [],
+                        videos: compactVideoList
+                    })
+                }
+            ]
+        });
+
+        const parsed = safeJsonParse(result?.text || "");
+        const normalized = normalizeModulePlan({
+            rawPlan: parsed,
+            totalVideos: videoDocs.length
+        });
+
+        if(!normalized.length || isWeakModulePlan({ modules: normalized, totalVideos: videoDocs.length })){
+            return fallbackModules;
+        }
+        return normalized;
+    } catch (error) {
+        return fallbackModules;
+    }
+}
+
 const normalizeQuizQuestions = (quizPayload) => {
     const rawQuestions = Array.isArray(quizPayload?.questions) ? quizPayload.questions : [];
     const validated = rawQuestions.map((item, idx) => {
         const options = Array.isArray(item?.options) ? item.options.slice(0,4).map((opt) => `${opt}`.trim()) : [];
         const optionIndex = parseInt(item?.correctOptionIndex, 10);
+        const startSeconds = Math.max(0, parseInt(item?.sourceStartSeconds ?? item?.startSeconds ?? 0, 10) || 0);
+        let endSeconds = Math.max(startSeconds + 15, parseInt(item?.sourceEndSeconds ?? item?.endSeconds ?? startSeconds + 55, 10) || (startSeconds + 55));
+        if(endSeconds - startSeconds > 120){
+            endSeconds = startSeconds + 120;
+        }
+        const normalizedDifficulty = `${item?.difficulty || "medium"}`.trim().toLowerCase();
+        const difficulty = ["easy", "medium", "hard"].includes(normalizedDifficulty) ? normalizedDifficulty : "medium";
+        const normalizedOptions = options.map((opt) => opt || "N/A");
+        const uniqueCount = new Set(normalizedOptions.map((opt) => opt.toLowerCase())).size;
+
         return {
             question: `${item?.question || ""}`.trim(),
-            options,
+            options: normalizedOptions,
             correctOptionIndex: Number.isInteger(optionIndex) ? optionIndex : -1,
             conceptTag: `${item?.conceptTag || "general"}`.trim().toLowerCase() || "general",
-            difficulty: `${item?.difficulty || "medium"}`.trim().toLowerCase() || "medium",
+            difficulty,
             explanation: `${item?.explanation || ""}`.trim(),
-            hint: `${item?.hint || ""}`.trim()
+            hint: `${item?.hint || ""}`.trim(),
+            sourceStartSeconds: startSeconds,
+            sourceEndSeconds: endSeconds,
+            sourceContext: `${item?.sourceContext || ""}`.trim(),
+            validOptions: uniqueCount === 4
         };
-    }).filter((item) => item.question && item.options.length === 4 && item.correctOptionIndex >= 0 && item.correctOptionIndex <= 3);
+    }).filter((item) => item.question && item.options.length === 4 && item.correctOptionIndex >= 0 && item.correctOptionIndex <= 3 && item.validOptions)
+    .map(({ validOptions, ...item }) => item);
 
     return validated.slice(0,8);
 }
 
-const buildFallbackQuizQuestions = ({ title = "", description = "", topicTags = [] }) => {
-    const titleText = `${title}`.trim() || "this lesson";
-    const mainTopic = topicTags?.[0] || "general concept";
-    const descWords = `${description}`.split(" ").filter(Boolean).slice(0, 12).join(" ");
+const inferQuizDomainProfile = ({ course = null, videoDoc = null, transcriptRows = [] }) => {
+    const subject = normalizeSubject(course?.subject || "general");
+    const seedText = [
+        subject,
+        videoDoc?.title || "",
+        videoDoc?.description || "",
+        (videoDoc?.topicTags || []).join(" "),
+        (transcriptRows || []).slice(0, 40).map((row) => row?.text || "").join(" ")
+    ].join(" ").toLowerCase();
 
-    return [
-        {
-            question: `What is the primary focus of "${titleText}"?`,
-            options: [
-                `${mainTopic} fundamentals`,
-                "Cloud infrastructure setup",
-                "Hardware troubleshooting",
-                "UI color theory"
-            ],
-            correctOptionIndex: 0,
-            conceptTag: mainTopic,
-            difficulty: "easy",
-            explanation: "The topic focus is inferred from the video title and learning context.",
-            hint: "Look at the core keyword in the title."
-        },
-        {
-            question: `Which approach best helps retain concepts from this lesson?`,
-            options: [
-                "Memorizing without practice",
-                "Combining explanation with active problem-solving",
-                "Skipping examples and jumping to advanced topics",
-                "Ignoring prerequisite concepts"
-            ],
-            correctOptionIndex: 1,
-            conceptTag: "learning-strategy",
-            difficulty: "medium",
-            explanation: "Active recall and practice improve retention and transfer.",
-            hint: "Pick the option that includes both understanding and practice."
-        },
-        {
-            question: `Based on the lesson context, what should be your next step after finishing the video?`,
-            options: [
-                "Practice concept-focused questions and review weak points",
-                "Switch to unrelated topics immediately",
-                "Avoid revision",
-                "Only watch at 2x without notes"
-            ],
-            correctOptionIndex: 0,
-            conceptTag: "revision",
-            difficulty: "easy",
-            explanation: "Deliberate practice and revision reinforce understanding.",
-            hint: "Choose the action that builds on the lesson, not away from it."
-        },
-        {
-            question: `Which statement is most aligned with effective understanding of ${mainTopic}?`,
-            options: [
-                "Learn only definitions",
-                "Connect concepts to examples and edge cases",
-                "Skip concept relationships",
-                "Avoid debugging or reflection"
-            ],
-            correctOptionIndex: 1,
-            conceptTag: mainTopic,
-            difficulty: "medium",
-            explanation: "Examples and edge-case thinking build deeper understanding.",
-            hint: "Look for the option emphasizing application over memorization."
-        },
-        {
-            question: `Which snippet appears in the lesson context summary?`,
-            options: [
-                `${descWords || "Core ideas and practical understanding"}`,
-                "No educational context provided",
-                "Only marketing links",
-                "A random unrelated recipe"
-            ],
-            correctOptionIndex: 0,
-            conceptTag: "comprehension",
-            difficulty: "easy",
-            explanation: "This option reflects the available lesson context.",
-            hint: "Find the option that resembles a real lesson snippet."
+    if(["dsa", "web-development", "core-cs", "ai-ml"].includes(subject)){
+        return { domain: "coding", subject };
+    }
+    if(["electronics"].includes(subject) || /physics|chemistry|biology|circuit|signal|semiconductor/.test(seedText)){
+        return { domain: "science", subject };
+    }
+    if(/aptitude|quant|algebra|calculus|probability|statistics/.test(seedText)){
+        return { domain: "math", subject };
+    }
+    if(/history|geography|polity|economics|upsc|ssc|neet|jee|gate|exam/.test(seedText)){
+        return { domain: "exam-theory", subject };
+    }
+    if(/english|ielts|communication|speaking|writing|grammar|language/.test(seedText)){
+        return { domain: "language", subject };
+    }
+    if(/design|ui|ux|figma|product|business|marketing|finance|sales/.test(seedText)){
+        return { domain: "professional", subject };
+    }
+
+    return { domain: "general", subject };
+}
+
+const getQuizDifficultyPlan = ({ course = null, videoDoc = null, adaptiveDifficulty = "medium", domain = "general" }) => {
+    const style = `${course?.personalizationProfile?.learningStyle || ""}`.toLowerCase();
+    const titleText = `${videoDoc?.title || ""}`.toLowerCase();
+    const descriptionText = `${videoDoc?.description || ""}`.toLowerCase();
+    const combined = `${titleText} ${descriptionText}`;
+
+    const isTheoryHeavy = ["history", "theory", "concept", "foundation", "principles", "overview"].some((key) => combined.includes(key));
+    const isHandsOn = ["project", "build", "implementation", "problem", "exercise", "lab", "practice", "case study"].some((key) => combined.includes(key));
+
+    let plan = { easy: 2, medium: 2, hard: 1 };
+    if(domain === "coding"){
+        plan = { easy: 1, medium: 2, hard: 2 };
+    } else if(domain === "math"){
+        plan = { easy: 1, medium: 3, hard: 1 };
+    } else if(domain === "exam-theory" || domain === "language"){
+        plan = { easy: 2, medium: 3, hard: 0 };
+    } else if(isTheoryHeavy){
+        plan = { easy: 2, medium: 3, hard: 0 };
+    } else if(isHandsOn){
+        plan = { easy: 1, medium: 3, hard: 1 };
+    }
+
+    if(style.includes("deep")){
+        plan = { easy: Math.max(0, plan.easy - 1), medium: plan.medium + 1, hard: plan.hard };
+    } else if(style.includes("quick")){
+        plan = { easy: plan.easy + 1, medium: Math.max(1, plan.medium - 1), hard: Math.max(0, plan.hard) };
+    }
+
+    if(adaptiveDifficulty === "easy"){
+        plan = { easy: 3, medium: 2, hard: 0 };
+    } else if(adaptiveDifficulty === "hard"){
+        plan = { easy: 1, medium: 2, hard: 2 };
+    }
+
+    const total = plan.easy + plan.medium + plan.hard;
+    if(total !== 5){
+        const diff = 5 - total;
+        plan.medium += diff;
+        if(plan.medium < 0){
+            plan.medium = 0;
+            plan.easy = Math.max(0, 5 - plan.hard);
         }
-    ];
+    }
+
+    return plan;
+}
+
+const redistributeDifficulty = (questions = [], plan = { easy: 2, medium: 2, hard: 1 }) => {
+    const desiredOrder = [
+        ...Array(plan.easy).fill("easy"),
+        ...Array(plan.medium).fill("medium"),
+        ...Array(plan.hard).fill("hard")
+    ].slice(0, questions.length);
+
+    const priorityScore = { easy: 1, medium: 2, hard: 3 };
+    const sorted = [...questions].sort((a, b) => (priorityScore[a.difficulty] || 2) - (priorityScore[b.difficulty] || 2));
+
+    return sorted.map((question, idx) => ({
+        ...question,
+        difficulty: desiredOrder[idx] || question.difficulty || "medium"
+    }));
+}
+
+const snapQuestionToTranscriptRange = ({ question = null, transcriptRows = [], videoDurationSeconds = 0 }) => {
+    const rows = transcriptRows || [];
+    let start = Math.max(0, parseInt(question?.sourceStartSeconds || 0, 10) || 0);
+    let end = Math.max(start + 20, parseInt(question?.sourceEndSeconds || start + 50, 10) || (start + 50));
+    let context = `${question?.sourceContext || ""}`.trim();
+
+    if(!rows.length){
+        if(videoDurationSeconds > 0){
+            start = Math.min(start, Math.max(0, videoDurationSeconds - 30));
+            end = Math.min(videoDurationSeconds, Math.max(start + 20, end));
+        }
+        return {
+            start,
+            end,
+            context
+        };
+    }
+
+    const nearest = rows.reduce((best, row) => {
+        const offset = Math.floor(row?.offset || 0);
+        const bestOffset = Math.floor(best?.offset || 0);
+        const bestDist = Math.abs(bestOffset - start);
+        const currentDist = Math.abs(offset - start);
+        return currentDist < bestDist ? row : best;
+    }, rows[0]);
+
+    const anchorOffset = Math.floor(nearest?.offset || 0);
+    const nearbyRows = rows.filter((row) => {
+        const offset = Math.floor(row?.offset || 0);
+        return offset >= Math.max(0, anchorOffset - 12) && offset <= (anchorOffset + 55);
+    });
+
+    if(nearbyRows.length){
+        const first = Math.floor(nearbyRows[0]?.offset || anchorOffset);
+        const last = Math.floor(nearbyRows[nearbyRows.length - 1]?.offset || anchorOffset + 40);
+        start = Math.max(0, first);
+        end = Math.max(start + 20, last + 12);
+        const collectedContext = nearbyRows.slice(0, 3).map((row) => `${row?.text || ""}`.trim()).join(" ").trim();
+        if(collectedContext){
+            context = collectedContext.slice(0, 260);
+        }
+    } else {
+        start = Math.max(0, anchorOffset - 8);
+        end = start + 45;
+        if(!context){
+            context = `${nearest?.text || ""}`.trim().slice(0, 220);
+        }
+    }
+
+    if(videoDurationSeconds > 0){
+        start = Math.min(start, Math.max(0, videoDurationSeconds - 20));
+        end = Math.min(videoDurationSeconds, Math.max(start + 20, end));
+    }
+    if(end - start > 100){
+        end = start + 100;
+    }
+
+    return {
+        start,
+        end,
+        context
+    };
+}
+
+const enrichQuestionSources = ({ questions = [], transcriptRows = [], videoDurationSeconds = 0 }) => {
+    if(!questions.length){
+        return [];
+    }
+    return questions.map((question) => {
+        const snapped = snapQuestionToTranscriptRange({
+            question,
+            transcriptRows,
+            videoDurationSeconds
+        });
+
+        return {
+            ...question,
+            sourceStartSeconds: snapped.start,
+            sourceEndSeconds: snapped.end,
+            sourceContext: snapped.context
+        };
+    });
+}
+
+const buildFallbackQuizQuestions = ({ title = "", topicTags = [], transcriptDoc = null }) => {
+    const transcriptItems = transcriptDoc?.transcript || [];
+    if(!transcriptItems.length){
+        const mainTopic = topicTags?.[0] || "general concept";
+        return [{
+            question: `Which topic is central in "${title || "this lesson"}"?`,
+            options: [
+                `${mainTopic}`,
+                "Unrelated topic",
+                "Random concept",
+                "None of the above"
+            ],
+            correctOptionIndex: 0,
+            conceptTag: mainTopic,
+            difficulty: "easy",
+            explanation: "The answer aligns with the lesson's primary topic.",
+            hint: "Pick the option that matches the video focus.",
+            sourceStartSeconds: 0,
+            sourceEndSeconds: 60,
+            sourceContext: "Video title/context based question."
+        }];
+    }
+
+    const samplePoints = [
+        transcriptItems[Math.floor(transcriptItems.length * 0.1)],
+        transcriptItems[Math.floor(transcriptItems.length * 0.3)],
+        transcriptItems[Math.floor(transcriptItems.length * 0.5)],
+        transcriptItems[Math.floor(transcriptItems.length * 0.7)],
+        transcriptItems[Math.floor(transcriptItems.length * 0.9)]
+    ].filter(Boolean);
+
+    return samplePoints.slice(0, 5).map((point, idx) => {
+        const context = `${point?.text || ""}`.trim();
+        const words = context.split(" ").filter(Boolean);
+        const corePhrase = words.slice(0, Math.min(7, words.length)).join(" ") || "Main idea in this segment";
+        const distractor1 = words.slice(Math.max(0, words.length - 6)).join(" ") || "Different idea";
+        const startSeconds = Math.max(0, Math.floor((point?.offset || 0) - 12));
+        const endSeconds = startSeconds + 70;
+        const optionB = distractor1 && distractor1.toLowerCase() !== corePhrase.toLowerCase() ? distractor1 : "A different claim from a separate segment";
+
+        return {
+            question: `Which statement is most consistent with what is explained around this part of the lesson?`,
+            options: [
+                corePhrase,
+                optionB,
+                "A random unrelated statement not discussed here",
+                "A contradiction of the explanation in this section"
+            ],
+            correctOptionIndex: 0,
+            conceptTag: topicTags?.[Math.min(idx, (topicTags?.length || 1) - 1)] || "lesson-concept",
+            difficulty: idx < 2 ? "easy" : "medium",
+            explanation: "This option best matches the explanation in the referenced transcript segment.",
+            hint: "Choose the option that aligns with the exact explanation near the given time.",
+            sourceStartSeconds: startSeconds,
+            sourceEndSeconds: endSeconds,
+            sourceContext: context.slice(0, 220)
+        };
+    });
 }
 
 const buildQuizAnalysis = ({ questionReview = [], percentage = 0 }) => {
@@ -578,6 +1018,11 @@ const buildRevisionClips = ({ questionReview = [], transcriptDoc = null, videoDo
 
         let startSeconds = 0;
         let endSeconds = 90;
+        const totalSeconds = parseIsoDurationToSeconds(videoDoc?.duration || "PT0S");
+        if(Number.isInteger(item.sourceStartSeconds) && Number.isInteger(item.sourceEndSeconds) && item.sourceEndSeconds > item.sourceStartSeconds){
+            startSeconds = Math.max(0, item.sourceStartSeconds);
+            endSeconds = Math.max(startSeconds + 20, item.sourceEndSeconds);
+        } else
         if(transcriptItems.length){
             const hit = transcriptItems.find((row) => `${row?.text || ""}`.toLowerCase().includes(concept));
             if(hit){
@@ -585,11 +1030,17 @@ const buildRevisionClips = ({ questionReview = [], transcriptDoc = null, videoDo
                 endSeconds = Math.floor((hit.offset || 0) + 70);
             }
         } else {
-            const totalSeconds = parseIsoDurationToSeconds(videoDoc?.duration || "PT0S");
             const hash = concept.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
             const anchor = totalSeconds ? hash % Math.max(totalSeconds, 1) : 0;
             startSeconds = Math.max(0, anchor - 25);
             endSeconds = totalSeconds ? Math.min(totalSeconds, anchor + 65) : anchor + 65;
+        }
+        if(totalSeconds > 0){
+            startSeconds = Math.min(startSeconds, Math.max(0, totalSeconds - 20));
+            endSeconds = Math.min(totalSeconds, Math.max(startSeconds + 20, endSeconds));
+        }
+        if(endSeconds - startSeconds > 120){
+            endSeconds = startSeconds + 120;
         }
 
         clips.push({
@@ -676,35 +1127,83 @@ const buildVideoDocFromYoutubeMeta = ({
 }
 
 const syncCourseLearningModules = async (courseId) => {
-    const videosAll = await Video.find({ playlist: courseId }).sort({ createdAt: 1 });
-    const moduleMap = {};
+    const courseDoc = await Course.findById(courseId);
+    if(!courseDoc){
+        return [];
+    }
 
-    videosAll.forEach((videoDoc) => {
-        if(!moduleMap[videoDoc.moduleTitle]){
-            moduleMap[videoDoc.moduleTitle] = {
-                title: videoDoc.moduleTitle,
-                topic: videoDoc.topicTags?.[0] || "general",
-                videos: [],
-                estimatedMinutes: 0,
-                milestone: ""
-            };
-        }
-        moduleMap[videoDoc.moduleTitle].videos.push(videoDoc._id);
-        moduleMap[videoDoc.moduleTitle].estimatedMinutes += parseIsoDurationToMinutes(videoDoc.duration);
+    const videosAll = await Video.find({ playlist: courseId }).sort({ createdAt: 1 });
+    if(!videosAll.length){
+        await Course.findByIdAndUpdate(courseId, {
+            videos: [],
+            learningModules: [],
+            totalVideos: 0
+        });
+        return [];
+    }
+
+    const planModules = await buildStructuredModulePlan({
+        videoDocs: videosAll,
+        subject: courseDoc.subject || "general",
+        personalization: courseDoc.personalizationProfile || {}
     });
 
-    const modules = Object.values(moduleMap).map((moduleItem, idx) => ({
-        ...moduleItem,
-        milestone: `Complete ${moduleItem.title} (${idx + 1}/${Object.keys(moduleMap).length})`
-    }));
+    const bulkOps = [];
+    const normalizedModules = planModules.map((moduleItem, moduleOrder) => {
+        const moduleTitle = sanitizeModuleTitle(moduleItem.title, `Module ${moduleOrder + 1}`);
+        const moduleTopic = `${moduleItem.topic || "general"}`.trim().toLowerCase() || "general";
+        const videoIds = [];
+        let estimatedMinutes = 0;
+
+        moduleItem.videoIndexes.forEach((videoIndex, position) => {
+            const videoDoc = videosAll[videoIndex];
+            if(!videoDoc){
+                return;
+            }
+            videoIds.push(videoDoc._id);
+            estimatedMinutes += parseIsoDurationToMinutes(videoDoc.duration);
+
+            const nextTags = Array.from(new Set([moduleTopic, ...(videoDoc.topicTags || [])].filter(Boolean))).slice(0, 5);
+            bulkOps.push({
+                updateOne: {
+                    filter: { _id: videoDoc._id },
+                    update: {
+                        moduleTitle,
+                        moduleOrder,
+                        modulePosition: position,
+                        topicTags: nextTags,
+                        priorityScore: Math.max(10, 100 - (moduleOrder * 8) - (position * 2))
+                    }
+                }
+            });
+        });
+
+        return {
+            title: moduleTitle,
+            topic: moduleTopic,
+            videos: videoIds,
+            estimatedMinutes,
+            milestone: moduleItem.milestone || `Complete ${moduleTitle} (${moduleOrder + 1}/${planModules.length})`
+        };
+    }).filter((item) => item.videos.length > 0);
+
+    if(bulkOps.length){
+        await Video.bulkWrite(bulkOps);
+    }
+
+    const orderedVideos = await Video.find({ playlist: courseId }).sort({
+        moduleOrder: 1,
+        modulePosition: 1,
+        createdAt: 1
+    }).select("_id");
 
     await Course.findByIdAndUpdate(courseId, {
-        videos: videosAll.map((item) => item._id),
-        learningModules: modules,
-        totalVideos: videosAll.length
+        videos: orderedVideos.map((item) => item._id),
+        learningModules: normalizedModules,
+        totalVideos: orderedVideos.length
     });
 
-    return modules;
+    return normalizedModules;
 }
 
 
@@ -838,36 +1337,8 @@ export const courseController = async (req,res) => {
                 }
             })
 
-            const videosAll = await Video.insertMany(videoArray)
-
-            const videoIDs = videosAll.map((vid,idx) => {
-                return vid._id;
-            })
-            
-            const moduleMap = {};
-            videosAll.forEach((videoDoc) => {
-                if(!moduleMap[videoDoc.moduleTitle]){
-                    moduleMap[videoDoc.moduleTitle] = {
-                        title: videoDoc.moduleTitle,
-                        topic: videoDoc.topicTags?.[0] || "general",
-                        videos: [],
-                        estimatedMinutes: 0,
-                        milestone: ""
-                    };
-                }
-                moduleMap[videoDoc.moduleTitle].videos.push(videoDoc._id);
-                moduleMap[videoDoc.moduleTitle].estimatedMinutes += parseIsoDurationToMinutes(videoDoc.duration);
-            });
-
-            const modules = Object.values(moduleMap).map((moduleItem, idx) => ({
-                ...moduleItem,
-                milestone: `Complete ${moduleItem.title} (${idx + 1}/${Object.keys(moduleMap).length})`
-            }));
-
-            await Course.findByIdAndUpdate(newCourse._id, {
-                videos: videoIDs,
-                learningModules: modules
-            })
+            await Video.insertMany(videoArray)
+            const modules = await syncCourseLearningModules(newCourse._id);
 
             return sendSuccess(res, 201, "Course created successfully", {
                 courseId: newCourse._id,
@@ -964,8 +1435,7 @@ export const createCustomCourseController = async (req, res) => {
             owner: req.user.username,
             item,
             personalization,
-            knownTopics,
-            moduleOverride: "Module: CUSTOM ADDED"
+            knownTopics
         }));
 
         await Video.insertMany(customVideos);
@@ -1000,6 +1470,10 @@ export const addVideosToCourseController = async (req, res) => {
             return sendError(res, 404, "Course not found");
         }
 
+        const userDoc = await User.findById(req.user.id).select("courseDailyProgress heatmapActivity");
+        const userDailyProgress = userDoc?.courseDailyProgress || [];
+        const userHeatmap = userDoc?.heatmapActivity || [];
+
         const extractedVideoIds = Array.from(new Set(
             videoUrls.map((url) => extractYoutubeVideoId(url)).filter(Boolean)
         ));
@@ -1030,8 +1504,7 @@ export const addVideosToCourseController = async (req, res) => {
             owner: req.user.username,
             item,
             personalization: course.personalizationProfile || {},
-            knownTopics,
-            moduleOverride: "Module: CUSTOM ADDED"
+            knownTopics
         }));
 
         const inserted = await Video.insertMany(newVideoDocs);
@@ -1099,10 +1572,19 @@ export const getVideo =  async (req,res) => {
 export const getCourseData = async(req,res) => {
 
     try {
-        const courses = await Video.find({
+        let courses = await Video.find({
             playlist: req.params.id,
             owner: req.user.username
-        })
+        }).sort({ moduleOrder: 1, modulePosition: 1, createdAt: 1 })
+
+        const requiresRestructure = courses.some((item) => item.moduleOrder === 999 || !item.moduleTitle);
+        if(requiresRestructure){
+            await syncCourseLearningModules(req.params.id);
+            courses = await Video.find({
+                playlist: req.params.id,
+                owner: req.user.username
+            }).sort({ moduleOrder: 1, modulePosition: 1, createdAt: 1 })
+        }
         return sendSuccess(res, 200, "Course data fetched successfully", courses)
     } catch (error) {
         console.log(error);
@@ -1113,7 +1595,7 @@ export const getCourseData = async(req,res) => {
 
 export const updateCoursePlan = async (req,res) => {
     try {
-        const { courseId = "", targetEndDate = null } = req.body;
+        const { courseId = "", targetEndDate = null, dailyStudyHoursGoal = null, dailyVideosGoal = null, weeklyCommitDays = null } = req.body;
         if(!courseId){
             return sendError(res, 400, "courseId is required");
         }
@@ -1129,6 +1611,30 @@ export const updateCoursePlan = async (req,res) => {
             update.targetEndDate = null;
         }
 
+        if(dailyStudyHoursGoal !== null && dailyStudyHoursGoal !== undefined && `${dailyStudyHoursGoal}` !== ""){
+            const parsedHours = Number(dailyStudyHoursGoal);
+            if(Number.isNaN(parsedHours) || parsedHours < 0 || parsedHours > 12){
+                return sendError(res, 400, "Invalid dailyStudyHoursGoal");
+            }
+            update.dailyStudyHoursGoal = Number(parsedHours.toFixed(2));
+        }
+
+        if(dailyVideosGoal !== null && dailyVideosGoal !== undefined && `${dailyVideosGoal}` !== ""){
+            const parsedVideos = Number(dailyVideosGoal);
+            if(Number.isNaN(parsedVideos) || parsedVideos < 0 || parsedVideos > 25){
+                return sendError(res, 400, "Invalid dailyVideosGoal");
+            }
+            update.dailyVideosGoal = Math.floor(parsedVideos);
+        }
+
+        if(weeklyCommitDays !== null && weeklyCommitDays !== undefined && `${weeklyCommitDays}` !== ""){
+            const parsedDays = Number(weeklyCommitDays);
+            if(Number.isNaN(parsedDays) || parsedDays < 1 || parsedDays > 7){
+                return sendError(res, 400, "Invalid weeklyCommitDays");
+            }
+            update.weeklyCommitDays = Math.floor(parsedDays);
+        }
+
         const updated = await Course.findOneAndUpdate({
             _id: courseId,
             owner: req.user.username
@@ -1140,7 +1646,10 @@ export const updateCoursePlan = async (req,res) => {
 
         return sendSuccess(res, 200, "Course plan updated successfully", {
             courseId: updated._id,
-            targetEndDate: updated.targetEndDate
+            targetEndDate: updated.targetEndDate,
+            dailyStudyHoursGoal: updated.dailyStudyHoursGoal || 0,
+            dailyVideosGoal: updated.dailyVideosGoal || 0,
+            weeklyCommitDays: updated.weeklyCommitDays || 5
         });
     } catch (error) {
         console.error("Course Plan Error:", error);
@@ -1160,81 +1669,79 @@ export const getCourseProgressInsights = async (req,res) => {
             return sendError(res, 404, "Course not found");
         }
 
+        const user = await User.findById(req.user.id).select("courseDailyProgress");
         const videos = await Video.find({
             playlist: id,
             owner: req.user.username
         });
-
-        const totalSeconds = videos.reduce((acc, video) => {
-            const sec = parseIsoDurationToSeconds(video.duration || "PT0S");
-            return acc + (sec || 0);
-        }, 0);
-
-        const completedSeconds = videos.reduce((acc, video) => {
-            const fullDuration = parseIsoDurationToSeconds(video.duration || "PT0S");
-            if(video.completed){
-                return acc + fullDuration;
-            }
-            const progress = Math.max(0, Math.floor(video.progressTime || 0));
-            return acc + Math.min(progress, fullDuration || progress);
-        }, 0);
-
+        const userDailyProgress = Array.isArray(user?.courseDailyProgress) ? user.courseDailyProgress : [];
         const totalVideosCount = videos.length;
         const completedVideosCount = videos.filter((item) => item.completed === true).length;
         const remainingVideosCount = Math.max(0, totalVideosCount - completedVideosCount);
-        const remainingSeconds = Math.max(0, totalSeconds - completedSeconds);
-        const percentageCompleted = totalSeconds ? Math.round((completedSeconds / totalSeconds) * 100) : 0;
+        const percentageCompleted = totalVideosCount ? Math.round((completedVideosCount / totalVideosCount) * 100) : 0;
         const remainingPercentage = Math.max(0, 100 - percentageCompleted);
 
         const todayKey = getDateKeyUTC(new Date());
-        const todayEntry = (req.user.courseDailyProgress || []).find(
+        const todayEntry = userDailyProgress.find(
             (item) => item.date === todayKey && `${item.courseId}` === `${id}`
         );
-        const actualCompletedHoursToday = Number((((todayEntry?.completedMinutes || 0) / 60).toFixed(2)));
         const actualCompletedVideosToday = todayEntry?.completedVideos || 0;
 
         const urgencyRaw = `${course?.personalizationProfile?.goalUrgency || ""}`.toLowerCase();
-        const urgency = urgencyRaw.includes("high")
-            ? "high"
-            : urgencyRaw.includes("low")
-                ? "low"
-                : "medium";
+        const timePerDayRaw = parseDailyHoursFromText(course?.personalizationProfile?.timePerDay || "");
+        const confidenceRaw = Number(course?.personalizationProfile?.codingConfidence || 0);
+        const levelText = `${course?.personalizationProfile?.experienceLevel || ""} ${course?.personalizationProfile?.priorExposure || ""}`.toLowerCase();
+        const inferredLevel = levelText.includes("advanced") || confidenceRaw >= 4
+            ? "advanced"
+            : (levelText.includes("intermediate") || confidenceRaw >= 3 ? "intermediate" : "beginner");
 
-        let dailyGoalVideos = 1;
-        if(urgency === "high"){
-            dailyGoalVideos = remainingVideosCount >= 20 ? 4 : remainingVideosCount >= 8 ? 3 : 2;
-        } else if(urgency === "medium"){
-            dailyGoalVideos = remainingVideosCount >= 12 ? 2 : 1;
-        } else {
-            dailyGoalVideos = 1;
+        let baseDailyVideos = inferredLevel === "advanced" ? 3 : inferredLevel === "intermediate" ? 2 : 1;
+        if(urgencyRaw.includes("high")){
+            baseDailyVideos += 1;
         }
-        dailyGoalVideos = Math.max(1, Math.min(dailyGoalVideos, remainingVideosCount || 1));
+        if(urgencyRaw.includes("low")){
+            baseDailyVideos -= 1;
+        }
+        if(timePerDayRaw >= 2.5){
+            baseDailyVideos += 1;
+        } else if(timePerDayRaw > 0 && timePerDayRaw < 0.75){
+            baseDailyVideos -= 1;
+        }
+        if(Number.isInteger(course?.dailyVideosGoal) && course.dailyVideosGoal > 0){
+            baseDailyVideos = course.dailyVideosGoal;
+        }
+        const recommendedDailyVideos = remainingVideosCount > 0
+            ? Math.max(1, Math.min(6, baseDailyVideos))
+            : 0;
+        const todaysGoalVideos = remainingVideosCount > 0
+            ? Math.min(remainingVideosCount, recommendedDailyVideos)
+            : 0;
+        const todaysVideosProgress = todaysGoalVideos > 0
+            ? Math.min(100, Math.floor((actualCompletedVideosToday / todaysGoalVideos) * 100))
+            : 100;
 
-        const daysToTarget = Math.max(1, Math.ceil((remainingVideosCount || 1) / dailyGoalVideos));
-        const autoTargetDate = new Date();
-        autoTargetDate.setHours(0, 0, 0, 0);
-        autoTargetDate.setDate(autoTargetDate.getDate() + Math.max(0, daysToTarget - 1));
-
-        const recommendedDailyWatchHours = Number(((remainingSeconds / 3600) / daysToTarget).toFixed(2));
+        const projectedDays = remainingVideosCount > 0
+            ? Math.max(1, Math.ceil(remainingVideosCount / Math.max(1, recommendedDailyVideos)))
+            : 0;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const projectedEndDate = new Date(today);
+        projectedEndDate.setDate(projectedEndDate.getDate() + Math.max(0, projectedDays - 1));
 
         return sendSuccess(res, 200, "Course progress insights fetched successfully", {
             courseId: course._id,
-            targetEndDate: autoTargetDate,
-            planPriority: urgency,
+            targetEndDate: projectedEndDate,
             percentageCompleted,
             remainingPercentage,
             totalVideosCount,
             completedVideosCount,
             remainingVideosCount,
-            totalDurationHours: Number((totalSeconds / 3600).toFixed(2)),
-            completedDurationHours: Number((completedSeconds / 3600).toFixed(2)),
-            remainingDurationHours: Number((remainingSeconds / 3600).toFixed(2)),
-            recommendedDailyWatchHours,
-            daysToTarget,
-            todaysGoalHours: recommendedDailyWatchHours,
-            todaysCompletedHours: actualCompletedHoursToday,
-            todaysGoalVideos: dailyGoalVideos,
-            todaysCompletedVideos: actualCompletedVideosToday
+            recommendedDailyVideos,
+            daysToTarget: projectedDays,
+            todaysGoalVideos,
+            todaysCompletedVideos: actualCompletedVideosToday,
+            todaysVideosProgress,
+            learnerLevel: inferredLevel
         });
     } catch (error) {
         console.error("Course Progress Insights Error:", error);
@@ -1852,6 +2359,32 @@ export const updateCourseSubject = async (req,res) => {
         return sendError(res, 500, "Server Error", error.message);
     }
 }
+
+export const rebuildCourseModulesController = async (req,res) => {
+    try {
+        const { courseId = "" } = req.body;
+        if(!courseId){
+            return sendError(res, 400, "courseId is required");
+        }
+
+        const course = await Course.findOne({
+            _id: courseId,
+            owner: req.user.username
+        });
+        if(!course){
+            return sendError(res, 404, "Course not found");
+        }
+
+        const modules = await syncCourseLearningModules(courseId);
+        return sendSuccess(res, 200, "Course modules rebuilt successfully", {
+            courseId,
+            modulesCount: modules.length
+        });
+    } catch (error) {
+        console.error("Rebuild Modules Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
 export const deleteVideoNotes = async (req,res) => {
     try {
         const {noteId, videoId} = req.body;
@@ -1907,6 +2440,10 @@ export const getVideoQuiz = async (req,res) => {
         if(!videoDoc){
             return sendError(res, 404, "Video not found");
         }
+        const courseDoc = await Course.findOne({
+            _id: videoDoc.playlist,
+            owner: req.user.username
+        });
 
         let quizDoc = await Quiz.findOne({
             videoDbId: videoDoc._id,
@@ -1924,17 +2461,59 @@ export const getVideoQuiz = async (req,res) => {
 
         if(!quizDoc || shouldRegenerateAdaptive){
             const summaryDoc = await Summary.findOne({ videoId: videoDoc.videoId }).sort({ createdAt: -1 });
-            const transcriptDoc = await Transcript.findOne({ videoId: videoDoc.videoId }).sort({ createdAt: -1 });
-            const transcriptSnippet = (transcriptDoc?.transcript || []).slice(0, 30).map((line) => line?.text || "").join(" ").slice(0, 2500);
+            let transcriptDoc = await Transcript.findOne({ videoId: videoDoc.videoId }).sort({ createdAt: -1 });
+            if(!transcriptDoc){
+                try {
+                    const rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoDoc.videoId}`,{
+                        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
+                    });
+                    if(rawTranscript && rawTranscript.length){
+                        transcriptDoc = await Transcript.create({
+                            videoId: videoDoc.videoId,
+                            transcript: rawTranscript
+                        });
+                    }
+                } catch (error) {
+                    transcriptDoc = null;
+                }
+            }
+            const transcriptRows = (transcriptDoc?.transcript || []).filter((row) => `${row?.text || ""}`.trim());
+            const transcriptSampleRows = transcriptRows
+                .slice(0, 220)
+                .map((row) => ({
+                    offset: Math.floor(row?.offset || 0),
+                    text: `${row?.text || ""}`.trim().slice(0, 180)
+                }));
+            const videoDurationSeconds = parseIsoDurationToSeconds(videoDoc?.duration || "PT0S");
+            const domainProfile = inferQuizDomainProfile({
+                course: courseDoc,
+                videoDoc,
+                transcriptRows
+            });
+            const difficultyPlan = getQuizDifficultyPlan({
+                course: courseDoc,
+                videoDoc,
+                adaptiveDifficulty,
+                domain: domainProfile.domain
+            });
+            const domainInstructionMap = {
+                coding: "Use code-concept reasoning if transcript supports it; do not ask syntax trivia not covered in transcript.",
+                science: "Focus on scientific principles/processes mentioned in transcript; avoid coding framing.",
+                math: "Focus on method, formula usage, and interpretation from transcript; avoid coding framing.",
+                "exam-theory": "Focus on conceptual recall, comparison, and factual understanding from transcript content.",
+                language: "Focus on language usage, meaning, grammar, and examples explicitly discussed in transcript.",
+                professional: "Focus on product/business/design decisions and frameworks explicitly discussed in transcript.",
+                general: "Focus on explanation fidelity to transcript content only."
+            };
 
             let quizQuestions = [];
             try {
                 const result = await generateText({
                     model: groq('meta-llama/llama-4-scout-17b-16e-instruct'),
-                    temperature: 0.2,
+                    temperature: 0.1,
                     messages: [
                         { role: "system", content: `
-You are a strict JSON API for generating a post-video quiz.
+You are a strict JSON API for generating a post-video quiz based ONLY on the provided transcript/time-stamped content.
 Return only JSON object:
 {
   "questions": [
@@ -1945,30 +2524,41 @@ Return only JSON object:
       "conceptTag": "string",
       "difficulty": "easy|medium|hard",
       "explanation": "string",
-      "hint": "string"
+      "hint": "string",
+      "sourceStartSeconds": 0,
+      "sourceEndSeconds": 45,
+      "sourceContext": "short quote/paraphrase from transcript segment"
     }
   ]
 }
 Rules:
 - Generate exactly 5 MCQs.
-- Questions must be based on given video context only.
+- Questions must be based on given transcript content only.
+- Do not add outside facts not supported by transcript/summary.
 - Each question must have exactly 4 options.
 - correctOptionIndex must be 0-3.
 - Keep conceptTag concise.
 - Keep explanations short and useful.
 - Hint must guide thought process only, never reveal correct answer.
+- sourceStartSeconds and sourceEndSeconds must be valid timestamps from transcript content.
+- Keep sourceContext short and directly tied to the referenced transcript segment.
+- Keep distractors plausible but false according to transcript.
 - Target difficulty: ${adaptiveDifficulty}
+- Target domain: ${domainProfile.domain}
+- Domain rule: ${domainInstructionMap[domainProfile.domain] || domainInstructionMap.general}
 - If focusConcept is provided, prioritize that concept in at least 3 questions.
 Do not return markdown.
 `},
                         { role: "user", content: JSON.stringify({
                             title: videoDoc.title,
                             description: videoDoc.description,
+                            subject: courseDoc?.subject || "general",
                             topicTags: videoDoc.topicTags || [],
                             summary: summaryDoc?.summary || "",
-                            transcriptSample: transcriptSnippet,
+                            transcriptTimeline: transcriptSampleRows,
                             targetDifficulty: adaptiveDifficulty,
-                            focusConcept
+                            focusConcept,
+                            preferredDifficultyMix: difficultyPlan
                         }) }
                     ],
                     response_format: { type: "json_object" }
@@ -1983,10 +2573,16 @@ Do not return markdown.
             if(!quizQuestions.length){
                 quizQuestions = buildFallbackQuizQuestions({
                     title: videoDoc.title,
-                    description: videoDoc.description,
-                    topicTags: videoDoc.topicTags || []
+                    topicTags: videoDoc.topicTags || [],
+                    transcriptDoc
                 });
             }
+            quizQuestions = enrichQuestionSources({
+                questions: quizQuestions,
+                transcriptRows,
+                videoDurationSeconds
+            });
+            quizQuestions = redistributeDifficulty(quizQuestions, difficultyPlan);
 
             if(quizDoc){
                 quizDoc.questions = quizQuestions;
@@ -2021,7 +2617,9 @@ Do not return markdown.
                 options: item.options,
                 conceptTag: item.conceptTag,
                 difficulty: item.difficulty,
-                hint: item.hint || ""
+                hint: item.hint || "",
+                sourceStartSeconds: item.sourceStartSeconds || 0,
+                sourceEndSeconds: item.sourceEndSeconds || 0
             }))
         };
 
@@ -2081,7 +2679,10 @@ export const submitVideoQuiz = async (req,res) => {
                 isCorrect,
                 conceptTag: item.conceptTag || "general",
                 difficulty: item.difficulty || "medium",
-                explanation: item.explanation || ""
+                explanation: item.explanation || "",
+                sourceStartSeconds: item.sourceStartSeconds || 0,
+                sourceEndSeconds: item.sourceEndSeconds || 0,
+                sourceContext: item.sourceContext || ""
             };
         });
 

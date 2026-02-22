@@ -1,5 +1,5 @@
 import express from "express"
-import { addVideosToCourseController, courseController, createCustomCourseController, getAi,getVideoNotes,getSummary,updateLastPlayedCourse,getRecommendedProblems, getCourse,updateVideoNotes,deleteVideoNotes, getCourseData, getSingleCourse, getVideo, updateCourseProgess, updateVideoProgess, getVideoQuiz, submitVideoQuiz, getQuizMastery, getQuizReviewSchedule, getQuizStats, getQuizInstructorAnalytics, updateCourseSubject, updateCoursePlan, getCourseProgressInsights } from "../controllers/course.controller.js";
+import { addVideosToCourseController, courseController, createCustomCourseController, getAi,getVideoNotes,getSummary,updateLastPlayedCourse,getRecommendedProblems, getCourse,updateVideoNotes,deleteVideoNotes, getCourseData, getSingleCourse, getVideo, updateCourseProgess, updateVideoProgess, getVideoQuiz, submitVideoQuiz, getQuizMastery, getQuizReviewSchedule, getQuizStats, getQuizInstructorAnalytics, updateCourseSubject, updateCoursePlan, getCourseProgressInsights, rebuildCourseModulesController } from "../controllers/course.controller.js";
 import { authCheck } from "../middlewares/authCheck.js";
 
 const router = express.Router()
@@ -17,6 +17,7 @@ router.post('/update/course',authCheck, updateCourseProgess);
 router.post('/update/plan',authCheck, updateCoursePlan);
 router.post('/update/lastplayedcourse',authCheck, updateLastPlayedCourse);
 router.post('/update/subject',authCheck, updateCourseSubject);
+router.post('/rebuild-modules',authCheck, rebuildCourseModulesController);
 router.post('/update/video',authCheck, updateVideoProgess)
 router.post('/update/video/notes',authCheck, updateVideoNotes)
 router.post('/update/video/notes/delete',authCheck, deleteVideoNotes)

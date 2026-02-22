@@ -49,6 +49,12 @@ const CoursePlayer = () => {
   const getApiData = (response) => {
     return response?.data?.data ?? response?.data;
   };
+  const formatTimestampLabel = (seconds = 0) => {
+    const safe = Math.max(0, parseInt(seconds || 0, 10) || 0);
+    const mins = Math.floor(safe / 60);
+    const secs = `${safe % 60}`.padStart(2, "0");
+    return `${mins}:${secs}`;
+  };
   const [data, setData] = useState([]);
   const [courseData, setCourseData] = useState({});
   const { name, id } = useParams();
@@ -111,11 +117,14 @@ const CoursePlayer = () => {
   const [showEndQuizPrompt, setShowEndQuizPrompt] = useState(false);
   const [progressInsights, setProgressInsights] = useState(null);
   const [progressInsightsLoading, setProgressInsightsLoading] = useState(false);
-  const [showDailyTracker, setShowDailyTracker] = useState(true);
+  const [isModulesOverviewOpen, setIsModulesOverviewOpen] = useState(true);
   const [openModulesMap, setOpenModulesMap] = useState({});
   const [newVideoUrls, setNewVideoUrls] = useState([""]);
   const [addingVideos, setAddingVideos] = useState(false);
   const [addVideoStatus, setAddVideoStatus] = useState("");
+  const [rebuildingModules, setRebuildingModules] = useState(false);
+  const [moduleRebuildStatus, setModuleRebuildStatus] = useState("");
+  const [showQuizAdvanced, setShowQuizAdvanced] = useState(false);
 
   const [ideLanguage, setIdeLanguage] = useState("javascript");
   const [ideVersion, setIdeVersion] = useState(LANGUAGE_VERSIONS["javascript"]);
@@ -529,6 +538,7 @@ const CoursePlayer = () => {
     setIsCardsOpen(false);
     setIsPracticeOpen(false);
     setIsQuizOpen(true);
+    setShowQuizAdvanced(false);
     setTimeout(() => {
       getQuizData();
       getQuizMetaData();
@@ -677,6 +687,37 @@ const CoursePlayer = () => {
       setAddVideoStatus(error?.response?.data?.message || "Unable to add videos.");
     } finally {
       setAddingVideos(false);
+    }
+  };
+
+  const rebuildModules = async () => {
+    if (!courseIdFromUrl) {
+      return;
+    }
+    setRebuildingModules(true);
+    setModuleRebuildStatus("");
+    try {
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/course/rebuild-modules`,
+        {
+          courseId: courseIdFromUrl,
+        },
+        {
+          withCredentials: true,
+        }
+      );
+
+      if (response?.data?.success) {
+        setModuleRebuildStatus("Modules rebuilt successfully.");
+        await getData();
+      } else {
+        setModuleRebuildStatus(response?.data?.message || "Unable to rebuild modules.");
+      }
+    } catch (error) {
+      console.log(error);
+      setModuleRebuildStatus(error?.response?.data?.message || "Unable to rebuild modules.");
+    } finally {
+      setRebuildingModules(false);
     }
   };
   const handleSubmit = async (e) => {
@@ -1549,13 +1590,9 @@ const CoursePlayer = () => {
                   <p className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
                     Course Progress
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => setShowDailyTracker((prev) => !prev)}
-                    className="text-[10px] px-2 py-1 rounded-sm border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
-                  >
-                    {showDailyTracker ? "Hide Daily Tracker" : "Show Daily Tracker"}
-                  </button>
+                  <p className="text-[10px] text-zinc-500 uppercase">
+                    Level: <span className="text-zinc-300 capitalize">{progressInsights?.learnerLevel || "beginner"}</span>
+                  </p>
                 </div>
 
                 <div className="mt-3">
@@ -1571,57 +1608,41 @@ const CoursePlayer = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
-                  <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
-                    <p className="text-[10px] text-zinc-500 uppercase">Total Hours</p>
-                    <p className="text-sm font-bold text-zinc-100">{progressInsights?.totalDurationHours ?? 0}h</p>
-                  </div>
-                  <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
-                    <p className="text-[10px] text-zinc-500 uppercase">Completed</p>
-                    <p className="text-sm font-bold text-zinc-100">{progressInsights?.completedDurationHours ?? 0}h</p>
-                  </div>
-                  <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
-                    <p className="text-[10px] text-zinc-500 uppercase">Remaining</p>
-                    <p className="text-sm font-bold text-zinc-100">{progressInsights?.remainingDurationHours ?? 0}h</p>
-                  </div>
-                </div>
-
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
-                    <p className="text-[10px] text-zinc-500 uppercase">Priority</p>
-                    <p className="text-sm font-bold text-zinc-100 capitalize">{progressInsights?.planPriority || "medium"}</p>
+                    <p className="text-[10px] text-zinc-500 uppercase">Videos Done</p>
+                    <p className="text-sm font-bold text-zinc-100">
+                      {progressInsights?.completedVideosCount ?? 0} / {progressInsights?.totalVideosCount ?? 0}
+                    </p>
                   </div>
                   <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
-                    <p className="text-[10px] text-zinc-500 uppercase">Auto Target Date</p>
+                    <p className="text-[10px] text-zinc-500 uppercase">Today Target</p>
+                    <p className="text-sm font-bold text-zinc-100">
+                      {progressInsights?.todaysGoalVideos ?? 0} videos
+                    </p>
+                  </div>
+                  <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
+                    <p className="text-[10px] text-zinc-500 uppercase">Projected End</p>
                     <p className="text-sm font-bold text-zinc-100">
                       {progressInsights?.targetEndDate ? new Date(progressInsights.targetEndDate).toLocaleDateString() : "NA"}
                     </p>
                   </div>
-                  <div className="rounded-sm border border-white/10 bg-black/20 px-3 py-2">
-                    <p className="text-[10px] text-zinc-500 uppercase">Daily Videos Goal</p>
-                    <p className="text-sm font-bold text-zinc-100">{progressInsights?.todaysGoalVideos ?? 0} videos/day</p>
-                  </div>
                 </div>
 
-                <div className="mt-3 flex items-center justify-between text-xs">
-                  <span className="text-zinc-500">
-                    Remaining Videos: {progressInsights?.remainingVideosCount ?? 0}
-                  </span>
-                  <span className="text-blue-400 font-semibold">
-                    Recommended Daily Watch: {progressInsights?.recommendedDailyWatchHours ?? 0}h
-                  </span>
-                </div>
-
-                <div className={`${showDailyTracker ? "" : "hidden"} mt-3 rounded-sm border border-white/10 bg-black/20 px-3 py-3`}>
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] mb-2">Daily Tracker</p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                    <span className="text-zinc-300">
-                      Today's Goal: <span className="font-bold text-blue-400">{progressInsights?.todaysGoalVideos ?? 0} videos</span> | <span className="font-bold text-blue-400">{progressInsights?.todaysGoalHours ?? 0}h</span>
-                    </span>
-                    <span className="text-zinc-300">
-                      Actually Completed: <span className="font-bold text-green-400">{progressInsights?.todaysCompletedVideos ?? 0} videos</span> | <span className="font-bold text-green-400">{progressInsights?.todaysCompletedHours ?? 0}h</span>
-                    </span>
+                <div className="mt-4 rounded-sm border border-white/10 bg-black/20 px-3 py-3">
+                  <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
+                    <span>Daily videos done: {progressInsights?.todaysCompletedVideos ?? 0}</span>
+                    <span>{progressInsights?.todaysVideosProgress ?? 0}%</span>
                   </div>
+                  <div className="h-1.5 w-full rounded-full bg-zinc-800/70 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-green-500"
+                      style={{ width: `${progressInsights?.todaysVideosProgress ?? 0}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-[11px] text-zinc-500">
+                    Recommended pace: {progressInsights?.recommendedDailyVideos ?? 0} videos/day
+                  </p>
                 </div>
                 <div className={`${progressInsightsLoading ? "" : "hidden"} mt-2 text-xs text-zinc-500`}>
                   Updating progress insights...
@@ -1710,32 +1731,65 @@ const CoursePlayer = () => {
                 </div> */}
                   {/* Scrollable Area */}
                   <div className="p-3 md:pb-28 space-y-3 max-h-90 md:max-h-150 overflow-y-auto custom-scrollbar hover:pr-2">
-                    <div className="mb-2 border border-white/10 bg-white/2 rounded-md p-3">
-                      <div className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em] mb-3">
-                        Learning Modules
-                      </div>
-                      <div className="space-y-2">
-                        {modulesList.map((moduleItem, idx) => {
-                          const percentage = moduleItem.total ? Math.floor((moduleItem.completed / moduleItem.total) * 100) : 0;
-                          return (
+                    <div className="mb-2 border border-white/10 bg-white/2 rounded-md overflow-hidden">
+                      <div
+                        onClick={() => setIsModulesOverviewOpen((prev) => !prev)}
+                        className="w-full px-3 py-2 flex items-center justify-between gap-2 hover:bg-white/5 cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between gap-2 w-full">
+                          <div className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
+                            Learning Modules
+                          </div>
+                          <div className="flex items-center gap-2">
                             <button
-                              key={idx}
-                              onClick={() => setActive(moduleItem.firstIndex)}
-                              className="w-full text-left px-3 py-2 rounded-sm border border-white/10 bg-black/20 hover:bg-white/5 transition-colors"
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                rebuildModules();
+                              }}
+                              disabled={rebuildingModules}
+                              className="text-[10px] px-2 py-1 rounded-sm bg-[#2563EB] text-black font-bold disabled:opacity-70"
                             >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs text-zinc-200 font-semibold truncate">{moduleItem.title}</span>
-                                <span className="text-[10px] text-zinc-500">
-                                  {moduleItem.completed}/{moduleItem.total}
-                                </span>
-                              </div>
-                              <div className="mt-2 h-1 w-full rounded-full bg-zinc-800/60 overflow-hidden">
-                                <div className="h-full bg-[#2563EB] rounded-full" style={{ width: `${percentage}%` }} />
-                              </div>
+                              {rebuildingModules ? "Rebuilding..." : "Rebuild"}
                             </button>
-                          );
-                        })}
+                            <ChevronDown
+                              size={14}
+                              className={`text-zinc-500 transition-transform duration-300 ${isModulesOverviewOpen ? "rotate-180" : ""}`}
+                            />
+                          </div>
+                        </div>
                       </div>
+                      <div
+                        className={`grid transition-[grid-template-rows] duration-300 ${
+                          isModulesOverviewOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                        }`}
+                      >
+                        <div className="overflow-hidden">
+                          <div className="space-y-2 p-3 pt-1">
+                            {modulesList.map((moduleItem, idx) => {
+                              const percentage = moduleItem.total ? Math.floor((moduleItem.completed / moduleItem.total) * 100) : 0;
+                              return (
+                                <button
+                                  key={idx}
+                                  onClick={() => setActive(moduleItem.firstIndex)}
+                                  className="w-full text-left px-3 py-2 rounded-sm border border-white/10 bg-black/20 hover:bg-white/5 transition-colors"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-xs text-zinc-200 font-semibold truncate">{moduleItem.title}</span>
+                                    <span className="text-[10px] text-zinc-500">
+                                      {moduleItem.completed}/{moduleItem.total}
+                                    </span>
+                                  </div>
+                                  <div className="mt-2 h-1 w-full rounded-full bg-zinc-800/60 overflow-hidden">
+                                    <div className="h-full bg-[#2563EB] rounded-full" style={{ width: `${percentage}%` }} />
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                      <p className="px-3 pb-2 text-[10px] text-zinc-500">{moduleRebuildStatus}</p>
                     </div>
 
                     <div className="border border-white/10 bg-black/20 rounded-md p-3 space-y-2">
@@ -2225,7 +2279,7 @@ const CoursePlayer = () => {
               </div>
             </div>
             {/* 3. QUIZ ACCORDION */}
-            <div className="h-fit max-h-133  flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
+            <div className="h-fit max-h-133 flex flex-col bg-[#141414]/60 backdrop-blur-xl border border-white/5 rounded-lg overflow-hidden transition-all duration-300">
               <div
                 onClick={() => {
                   const nextState = !isQuizOpen;
@@ -2273,7 +2327,7 @@ const CoursePlayer = () => {
                 }`}
               >
                 <div className="overflow-hidden">
-                  <div className="flex flex-col h-fit max-h-133 p-3 space-y-3 overflow-y-auto custom-scrollbar">
+                  <div className="flex flex-col h-fit max-h-133 p-3 pb-8 md:pb-10 pr-2 space-y-3 overflow-y-auto custom-scrollbar">
                     {quizLoading ? (
                       <div className="flex items-center justify-center py-10 text-sm text-zinc-500">
                         Preparing quiz...
@@ -2307,8 +2361,16 @@ const CoursePlayer = () => {
                                 </button>
                               ))}
                             </div>
-                            <div className="mt-2 text-[10px] text-zinc-500">
-                              {item.conceptTag} | {item.difficulty}
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-zinc-300">
+                                {item.conceptTag}
+                              </span>
+                              <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-blue-300 capitalize">
+                                {item.difficulty}
+                              </span>
+                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-zinc-400">
+                                {formatTimestampLabel(item.sourceStartSeconds)} - {formatTimestampLabel(item.sourceEndSeconds)}
+                              </span>
                             </div>
                             <div className="mt-2">
                               <button
@@ -2344,13 +2406,22 @@ const CoursePlayer = () => {
                         <div className="rounded-md border border-white/10 bg-black/20 p-3">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-xs text-zinc-500 uppercase tracking-[0.2em]">Quiz Controls</p>
-                            <button
-                              type="button"
-                              onClick={startNewQuizAttempt}
-                              className="text-xs px-3 py-1.5 rounded-sm bg-[#2563EB] text-black font-bold hover:bg-[#1d4fd8]"
-                            >
-                              Retake Quiz
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setShowQuizAdvanced((prev) => !prev)}
+                                className="text-xs px-3 py-1.5 rounded-sm border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
+                              >
+                                {showQuizAdvanced ? "Hide Details" : "Show Details"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={startNewQuizAttempt}
+                                className="text-xs px-3 py-1.5 rounded-sm bg-[#2563EB] text-black font-bold hover:bg-[#1d4fd8]"
+                              >
+                                Retake Quiz
+                              </button>
+                            </div>
                           </div>
                           <p className="text-xs text-zinc-400 mt-2">
                             Start a fresh attempt for this video and compare with past performance.
@@ -2389,6 +2460,7 @@ const CoursePlayer = () => {
                           </div>
                         </div>
 
+                        <div className={`${showQuizAdvanced ? "space-y-3" : "hidden"}`}>
                         <div className="rounded-md border border-white/10 bg-black/20 p-3">
                           <p className="text-xs text-zinc-500 uppercase tracking-[0.2em] mb-2">Attempt History</p>
                           <div className="space-y-2 max-h-36 overflow-y-auto custom-scrollbar">
@@ -2589,9 +2661,26 @@ const CoursePlayer = () => {
                         <div className="space-y-2">
                           {(quizResult?.questionReview || []).map((item, idx) => (
                             <div key={idx} className={`rounded-md border p-3 ${item.isCorrect ? "border-green-500/30 bg-green-500/5" : "border-red-500/30 bg-red-500/5"}`}>
-                              <p className="text-sm text-zinc-100">Q{idx + 1}. {item.question}</p>
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm text-zinc-100">Q{idx + 1}. {item.question}</p>
+                                <button
+                                  type="button"
+                                  onClick={() => jumpToRevisionClip({ startSeconds: item.sourceStartSeconds || 0 })}
+                                  className="text-[10px] px-2 py-1 rounded-sm bg-[#2563EB] text-black font-bold"
+                                >
+                                  Jump To Source
+                                </button>
+                              </div>
                               <p className="text-xs mt-1 text-zinc-300">Your answer: {item.selectedOption || "Not answered"}</p>
                               <p className="text-xs text-zinc-300">Correct answer: {item.correctOption}</p>
+                              <p className="text-[10px] text-zinc-400 mt-1">
+                                Source: {formatTimestampLabel(item.sourceStartSeconds)} - {formatTimestampLabel(item.sourceEndSeconds)}
+                              </p>
+                              {!!item.sourceContext && (
+                                <p className="text-[10px] text-zinc-500 mt-1 break-words">
+                                  Context: {item.sourceContext}
+                                </p>
+                              )}
                               <p className="text-xs text-zinc-400 mt-1">{item.explanation}</p>
                             </div>
                           ))}
@@ -2643,6 +2732,7 @@ const CoursePlayer = () => {
                               </div>
                             </div>
                           )}
+                        </div>
                         </div>
                       </div>
                     )}
