@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "OpenCourse Tracker",
   "version": "1.0.0",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "host_permissions": [
     "http://localhost:3000/*", 
     "https://www.youtube.com/*"
