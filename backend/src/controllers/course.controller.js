@@ -16,6 +16,7 @@ import { QuizAttempt } from "../models/quizAttempt.model.js";
 import { QuizReviewSchedule } from "../models/quizReviewSchedule.model.js";
 import { sendError, sendSuccess } from "../utils/apiResponse.js";
 
+const QUIZ_QUESTION_COUNT = 8;
 
 const normalizeTopics = (rawTopics = "") => {
     if(Array.isArray(rawTopics)){
@@ -287,6 +288,87 @@ const getDateKeyUTC = (date = new Date()) => {
     return new Date(date).toISOString().slice(0, 10);
 }
 
+const normalizeNoteCategory = (category = "") => {
+    const safe = `${category || ""}`.trim().toLowerCase();
+    if(!safe){
+        return "theory";
+    }
+    const allowed = ["theory", "doubt", "code", "formula", "revision"];
+    if(allowed.includes(safe)){
+        return safe;
+    }
+    return safe.slice(0, 32);
+}
+
+const inferNoteCategoryHeuristic = ({ content = "", title = "", description = "" }) => {
+    const text = `${content || ""} ${title || ""} ${description || ""}`.toLowerCase();
+    if(/error|bug|issue|why|confus|doubt|question/.test(text)){
+        return "doubt";
+    }
+    if(/code|function|class|loop|array|algorithm|syntax|api|query|sql|js|python|java/.test(text)){
+        return "code";
+    }
+    if(/formula|equation|theorem|identity|law/.test(text)){
+        return "formula";
+    }
+    if(/revise|revision|remember|important/.test(text)){
+        return "revision";
+    }
+    return "theory";
+}
+
+const suggestNoteCategoryWithAi = async ({ content = "", title = "", description = "" }) => {
+    const heuristic = inferNoteCategoryHeuristic({ content, title, description });
+    const text = `${content || ""}`.trim();
+    if(!text){
+        return heuristic;
+    }
+    try {
+        const result = await generateText({
+            model: groq("llama-3.3-70b-versatile"),
+            temperature: 0,
+            messages: [
+                {
+                    role: "system",
+                    content: `
+You are a strict JSON API that classifies study notes into one category.
+Return only JSON:
+{"category":"theory|doubt|code|formula|revision"}
+Rules:
+- Choose exactly one category.
+- Do not add markdown.
+`
+                },
+                {
+                    role: "user",
+                    content: JSON.stringify({
+                        title,
+                        description,
+                        note: text
+                    })
+                }
+            ],
+            response_format: { type: "json_object" }
+        });
+        const parsed = safeJsonParse(result?.text || "");
+        return normalizeNoteCategory(parsed?.category || heuristic);
+    } catch (error) {
+        return heuristic;
+    }
+}
+
+const getNoteReviewIntervalDays = (level = 0) => {
+    const ladder = [1, 2, 4, 7, 14, 21, 30];
+    const idx = Math.max(0, Math.min(ladder.length - 1, parseInt(level, 10) || 0));
+    return ladder[idx];
+}
+
+const toStartOfDay = (date = new Date()) => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    return d;
+}
+
 const upsertUserDailyActivity = async ({ userId, courseId, completedMinutes = 0 }) => {
     const userDoc = await User.findById(userId);
     if(!userDoc){
@@ -341,6 +423,596 @@ const safeJsonParse = (text = "") => {
         }
         return null;
     }
+}
+
+const PINECONE_API_BASE = "https://api.pinecone.io";
+const PINECONE_API_VERSION = process.env.PINECONE_API_VERSION || "2025-10";
+const PINECONE_EMBED_MODEL = `${process.env.PINECONE_EMBED_MODEL || "llama-text-embed-v2"}`.trim() || "llama-text-embed-v2";
+let pineconeResolvedIndexDimension = Number.parseInt(`${process.env.PINECONE_INDEX_DIMENSION || ""}`, 10) || 0;
+const ragIndexingJobs = new Map();
+const getPineconeConfig = () => {
+    const apiKey = `${process.env.PINECONE_API_KEY || ""}`.trim();
+    const rawHost = `${process.env.PINECONE_INDEX_HOST || ""}`.trim();
+    const host = rawHost ? rawHost.replace(/\/+$/, "") : "";
+    const namespace = `${process.env.PINECONE_NAMESPACE || "opencourse"}`.trim() || "opencourse";
+    return {
+        apiKey,
+        host,
+        namespace,
+        isEnabled: Boolean(apiKey && host)
+    };
+}
+
+const logRagEvent = (event = "", payload = {}) => {
+    if(!shouldExposeRagDebug()){
+        return;
+    }
+    try {
+        console.log(`[RAG] ${event}`, payload);
+    } catch (e) {
+        console.log(`[RAG] ${event}`);
+    }
+}
+
+const pineconeVersionCandidates = () => {
+    const envVersion = `${process.env.PINECONE_API_VERSION || ""}`.trim();
+    const candidates = [
+        envVersion,
+        PINECONE_API_VERSION,
+        "2025-04",
+        "2024-10",
+        "2024-07",
+        ""
+    ].filter((item, idx, arr) => item !== undefined && arr.indexOf(item) === idx);
+    return candidates;
+}
+
+const pineconePostWithFallback = async ({ url = "", apiKey = "", payload = {}, timeout = 20000 }) => {
+    const versions = pineconeVersionCandidates();
+    let lastError = null;
+    const retryableCodes = new Set(["ECONNRESET", "ETIMEDOUT", "ECONNABORTED", "EAI_AGAIN"]);
+
+    for(const version of versions){
+        for(let attempt = 1; attempt <= 3; attempt += 1){
+            try {
+                const headers = {
+                    "Api-Key": apiKey,
+                    "Content-Type": "application/json"
+                };
+                if(version){
+                    headers["X-Pinecone-Api-Version"] = version;
+                }
+
+                const response = await axios.post(url, payload, {
+                    headers,
+                    timeout
+                });
+                return response;
+            } catch (error) {
+                lastError = error;
+                const status = error?.response?.status || 0;
+                const code = `${error?.code || ""}`.toUpperCase();
+                const shouldRetryNetwork = retryableCodes.has(code) && attempt < 3;
+                if(shouldRetryNetwork){
+                    const waitMs = 200 * attempt;
+                    await new Promise((resolve) => setTimeout(resolve, waitMs));
+                    continue;
+                }
+                if(status !== 404 && status !== 400){
+                    break;
+                }
+            }
+        }
+    }
+
+    throw lastError || new Error("Pinecone request failed");
+}
+
+const parseIndexDimensionFromError = (error = null) => {
+    const message = `${error?.response?.data?.message || error?.message || ""}`;
+    if(!message){
+        return 0;
+    }
+    const match = message.match(/index\s+(\d+)/i);
+    if(!match){
+        return 0;
+    }
+    const parsed = parseInt(match[1], 10);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
+}
+
+const alignVectorDimension = (values = [], targetDimension = 0) => {
+    const vector = Array.isArray(values) ? values : [];
+    const target = parseInt(targetDimension, 10) || 0;
+    if(!target || !vector.length){
+        return vector;
+    }
+    if(vector.length === target){
+        return vector;
+    }
+    if(vector.length > target){
+        return vector.slice(0, target);
+    }
+    const padCount = target - vector.length;
+    return [...vector, ...Array(padCount).fill(0)];
+}
+
+const buildTranscriptChunks = (transcriptRows = [], videoId = "", courseId = "") => {
+    const rows = (transcriptRows || []).filter((row) => `${row?.text || ""}`.trim());
+    if(!rows.length){
+        return [];
+    }
+
+    const chunks = [];
+    let current = null;
+    const charLimit = 900;
+    const secondWindow = 100;
+
+    rows.forEach((row) => {
+        const offset = Math.max(0, Math.floor(row?.offset || 0));
+        const text = `${row?.text || ""}`.trim();
+        if(!text){
+            return;
+        }
+
+        if(!current){
+            current = {
+                startSeconds: offset,
+                endSeconds: offset + Math.max(8, Math.ceil(row?.duration || 6)),
+                textParts: [text]
+            };
+            return;
+        }
+
+        const projectedText = `${current.textParts.join(" ")} ${text}`.trim();
+        const projectedDuration = offset - current.startSeconds;
+        const shouldFlush = projectedText.length > charLimit || projectedDuration > secondWindow;
+
+        if(shouldFlush){
+            chunks.push({
+                id: `${videoId}:chunk:${chunks.length + 1}`,
+                videoId,
+                courseId: `${courseId}`,
+                startSeconds: current.startSeconds,
+                endSeconds: Math.max(current.startSeconds + 12, current.endSeconds),
+                text: current.textParts.join(" ").trim()
+            });
+            current = {
+                startSeconds: offset,
+                endSeconds: offset + Math.max(8, Math.ceil(row?.duration || 6)),
+                textParts: [text]
+            };
+            return;
+        }
+
+        current.textParts.push(text);
+        current.endSeconds = Math.max(current.endSeconds, offset + Math.max(8, Math.ceil(row?.duration || 6)));
+    });
+
+    if(current?.textParts?.length){
+        chunks.push({
+            id: `${videoId}:chunk:${chunks.length + 1}`,
+            videoId,
+            courseId: `${courseId}`,
+            startSeconds: current.startSeconds,
+            endSeconds: Math.max(current.startSeconds + 12, current.endSeconds),
+            text: current.textParts.join(" ").trim()
+        });
+    }
+
+    return chunks.filter((item) => item.text.length > 25).slice(0, 220);
+}
+
+const embedTextsWithPinecone = async (texts = [], inputType = "passage") => {
+    const { apiKey, isEnabled } = getPineconeConfig();
+    if(!isEnabled || !texts.length){
+        logRagEvent("embed_skipped", { isEnabled, textCount: texts.length, inputType });
+        return [];
+    }
+    logRagEvent("embed_start", { textCount: texts.length, inputType, model: PINECONE_EMBED_MODEL });
+
+    const requestedModel = `${PINECONE_EMBED_MODEL || "llama-text-embed-v2"}`.trim() || "llama-text-embed-v2";
+    const maxInputsPerRequest = Math.max(1, Math.min(96, parseInt(process.env.PINECONE_EMBED_MAX_INPUTS || "80", 10) || 80));
+
+    const runEmbedRequest = async (modelName, textBatch) => {
+        const payload = {
+            model: modelName,
+            parameters: {
+                input_type: inputType,
+                truncate: "END"
+            },
+            inputs: textBatch.map((text) => ({ text: `${text || ""}`.trim() }))
+        };
+
+        try {
+            return await pineconePostWithFallback({
+                url: `${PINECONE_API_BASE}/embed`,
+                apiKey,
+                payload,
+                timeout: 20000
+            });
+        } catch (firstError) {
+            return pineconePostWithFallback({
+                url: `${PINECONE_API_BASE}/inference/embed`,
+                apiKey,
+                payload,
+                timeout: 20000
+            });
+        }
+    };
+
+    const vectors = [];
+    for(let i = 0; i < texts.length; i += maxInputsPerRequest){
+        const batch = texts.slice(i, i + maxInputsPerRequest);
+        let response = null;
+        try {
+            response = await runEmbedRequest(requestedModel, batch);
+        } catch (firstModelError) {
+            const status = firstModelError?.response?.status || "";
+            const shouldTryFallbackModel = requestedModel !== "multilingual-e5-large";
+            if(!shouldTryFallbackModel){
+                throw firstModelError;
+            }
+            response = await runEmbedRequest("multilingual-e5-large", batch);
+            console.warn(`Pinecone embed model fallback used: ${requestedModel} -> multilingual-e5-large`, status, firstModelError?.response?.data || {});
+        }
+
+        const data = response?.data?.data || [];
+        const batchVectors = data.map((item) => item?.values || []).filter((values) => Array.isArray(values) && values.length > 0);
+        vectors.push(...batchVectors);
+        logRagEvent("embed_batch_done", {
+            batchStart: i,
+            batchSize: batch.length,
+            vectorCount: batchVectors.length,
+            cumulativeVectors: vectors.length
+        });
+    }
+
+    logRagEvent("embed_done", { vectorCount: vectors.length, inputType, maxInputsPerRequest });
+    return vectors;
+}
+
+const upsertChunksToPinecone = async (chunks = []) => {
+    const { apiKey, host, namespace, isEnabled } = getPineconeConfig();
+    if(!isEnabled || !chunks.length){
+        logRagEvent("upsert_skipped", { isEnabled, chunkCount: chunks.length });
+        return { upsertedCount: 0 };
+    }
+    logRagEvent("upsert_start", { chunkCount: chunks.length, namespace, host });
+
+    const embeddings = await embedTextsWithPinecone(chunks.map((item) => item.text), "passage");
+    if(!embeddings.length || embeddings.length !== chunks.length){
+        return { upsertedCount: 0 };
+    }
+
+    let vectors = chunks.map((chunk, idx) => ({
+        id: chunk.id,
+        values: (embeddings[idx] || []).map((v) => (Number.isFinite(v) ? Number(v) : 0)),
+        metadata: {
+            videoId: `${chunk.videoId}`,
+            courseId: `${chunk.courseId}`,
+            startSeconds: chunk.startSeconds,
+            endSeconds: chunk.endSeconds,
+            text: `${chunk.text}`.slice(0, 600)
+        }
+    })).filter((item) => Array.isArray(item.values) && item.values.length > 0);
+
+    if(pineconeResolvedIndexDimension > 0){
+        vectors = vectors.map((item) => ({
+            ...item,
+            values: alignVectorDimension(item.values, pineconeResolvedIndexDimension)
+        }));
+    }
+
+    const batchSize = Math.max(4, Math.min(30, parseInt(process.env.PINECONE_UPSERT_BATCH_SIZE || "10", 10) || 10));
+    let totalUpserted = 0;
+
+    for(let i = 0; i < vectors.length; i += batchSize){
+        let batchVectors = vectors.slice(i, i + batchSize);
+        let response = null;
+        try {
+            response = await pineconePostWithFallback({
+                url: `${host}/vectors/upsert`,
+                apiKey,
+                payload: {
+                    namespace,
+                    vectors: batchVectors
+                },
+                timeout: 30000
+            });
+        } catch (error) {
+            const expectedDim = parseIndexDimensionFromError(error);
+            if(expectedDim){
+                pineconeResolvedIndexDimension = expectedDim;
+                batchVectors = batchVectors.map((item) => ({
+                    ...item,
+                    values: alignVectorDimension(item.values, expectedDim).map((v) => (Number.isFinite(v) ? Number(v) : 0))
+                }));
+                response = await pineconePostWithFallback({
+                    url: `${host}/vectors/upsert`,
+                    apiKey,
+                    payload: {
+                        namespace,
+                        vectors: batchVectors
+                    },
+                    timeout: 30000
+                });
+            } else {
+                const detailBody = error?.response?.data || {};
+                logRagEvent("upsert_batch_error", {
+                    batchStart: i,
+                    batchSize: batchVectors.length,
+                    status: error?.response?.status || "",
+                    detail: detailBody
+                });
+
+                // Retry individually to isolate malformed vector/metadata and index partial progress.
+                let perVectorSuccess = 0;
+                for(let j = 0; j < batchVectors.length; j += 1){
+                    const single = batchVectors[j];
+                    try {
+                        await pineconePostWithFallback({
+                            url: `${host}/vectors/upsert`,
+                            apiKey,
+                            payload: {
+                                namespace,
+                                vectors: [single]
+                            },
+                            timeout: 30000
+                        });
+                        perVectorSuccess += 1;
+                    } catch (singleErr) {
+                        logRagEvent("upsert_single_error", {
+                            vectorId: single?.id || "",
+                            status: singleErr?.response?.status || "",
+                            detail: singleErr?.response?.data || {}
+                        });
+                    }
+                }
+
+                if(perVectorSuccess === 0){
+                    throw error;
+                }
+                totalUpserted += perVectorSuccess;
+                logRagEvent("upsert_batch_partial", {
+                    batchStart: i,
+                    batchSize: batchVectors.length,
+                    perVectorSuccess,
+                    totalUpserted
+                });
+                continue;
+            }
+        }
+
+        const upsertedNow = response?.data?.upsertedCount || batchVectors.length;
+        totalUpserted += upsertedNow;
+        logRagEvent("upsert_batch_done", {
+            batchStart: i,
+            batchSize: batchVectors.length,
+            upsertedNow,
+            totalUpserted
+        });
+    }
+
+    return {
+        upsertedCount: totalUpserted
+    };
+}
+
+const queryPineconeChunks = ({ text = "", videoId = "", courseId = "", topK = 12, startSeconds = null, endSeconds = null }) => {
+    return queryPineconeChunksInternal({ text, videoId, courseId, topK, startSeconds, endSeconds });
+}
+
+const queryPineconeChunksInternal = async ({ text = "", videoId = "", courseId = "", topK = 12, startSeconds = null, endSeconds = null }) => {
+    const { apiKey, host, namespace, isEnabled } = getPineconeConfig();
+    if(!isEnabled || !text.trim()){
+        logRagEvent("query_skipped", { isEnabled, hasText: Boolean(text.trim()) });
+        return [];
+    }
+    logRagEvent("query_start", { namespace, host, topK, videoId, courseId, hasWindow: Number.isFinite(startSeconds) || Number.isFinite(endSeconds) });
+
+    const embeddings = await embedTextsWithPinecone([text], "query");
+    let queryVector = embeddings?.[0];
+    if(!queryVector?.length){
+        return [];
+    }
+    if(pineconeResolvedIndexDimension > 0){
+        queryVector = alignVectorDimension(queryVector, pineconeResolvedIndexDimension);
+    }
+
+    const filters = [];
+    if(videoId){
+        filters.push({ videoId: { "$eq": `${videoId}` } });
+    }
+    if(courseId){
+        filters.push({ courseId: { "$eq": `${courseId}` } });
+    }
+    if(Number.isFinite(startSeconds)){
+        filters.push({ endSeconds: { "$gte": Math.max(0, Math.floor(startSeconds)) } });
+    }
+    if(Number.isFinite(endSeconds)){
+        filters.push({ startSeconds: { "$lte": Math.max(0, Math.floor(endSeconds)) } });
+    }
+
+    const payload = {
+        namespace,
+        vector: queryVector,
+        topK: Math.max(5, Math.min(20, parseInt(topK, 10) || 12)),
+        includeMetadata: true
+    };
+    const filterObj = filters.length > 1 ? { "$and": filters } : (filters[0] || null);
+    if(filterObj){
+        payload.filter = filterObj;
+    }
+
+    let response = null;
+    try {
+        response = await pineconePostWithFallback({
+            url: `${host}/query`,
+            apiKey,
+            payload,
+            timeout: 20000
+        });
+    } catch (error) {
+        const expectedDim = parseIndexDimensionFromError(error);
+        if(!expectedDim){
+            throw error;
+        }
+        pineconeResolvedIndexDimension = expectedDim;
+        const retryPayload = {
+            ...payload,
+            vector: alignVectorDimension(payload.vector, expectedDim)
+        };
+        response = await pineconePostWithFallback({
+            url: `${host}/query`,
+            apiKey,
+            payload: retryPayload,
+            timeout: 20000
+        });
+    }
+
+    const matches = response?.data?.matches || [];
+    const out = matches.map((item) => ({
+        id: item?.id || "",
+        score: Number((item?.score || 0).toFixed(4)),
+        text: `${item?.metadata?.text || ""}`.trim(),
+        startSeconds: Math.max(0, parseInt(item?.metadata?.startSeconds || 0, 10) || 0),
+        endSeconds: Math.max(0, parseInt(item?.metadata?.endSeconds || 0, 10) || 0)
+    })).filter((item) => item.text);
+    logRagEvent("query_done", { matchCount: out.length, topK });
+    return out;
+}
+
+const ensureTranscriptDoc = async (videoId = "") => {
+    if(!videoId){
+        return null;
+    }
+    let transcriptDoc = await Transcript.findOne({ videoId }).sort({ createdAt: -1 });
+    if(transcriptDoc){
+        return transcriptDoc;
+    }
+
+    try {
+        const rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoId}`,{
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
+        });
+        if(rawTranscript && rawTranscript.length){
+            transcriptDoc = await Transcript.create({
+                videoId,
+                transcript: rawTranscript
+            });
+            return transcriptDoc;
+        }
+    } catch (error) {
+        return null;
+    }
+
+    return null;
+}
+
+const ensureRagChunksForVideo = async ({ videoDoc = null, transcriptDoc = null }) => {
+    const videoKey = `${videoDoc?.videoId || ""}:${videoDoc?.playlist || ""}`;
+    if(videoKey && ragIndexingJobs.has(videoKey)){
+        logRagEvent("ensure_chunks_wait_existing_job", { videoKey });
+        await ragIndexingJobs.get(videoKey);
+        return;
+    }
+
+    const jobPromise = (async () => {
+        const { isEnabled } = getPineconeConfig();
+        if(!isEnabled || !videoDoc || !transcriptDoc){
+            logRagEvent("ensure_chunks_skipped", {
+                isEnabled,
+                hasVideoDoc: Boolean(videoDoc),
+                hasTranscriptDoc: Boolean(transcriptDoc)
+            });
+            return;
+        }
+
+        const transcriptRows = transcriptDoc?.transcript || [];
+        if(!transcriptRows.length){
+            logRagEvent("ensure_chunks_skipped_empty_transcript", { videoId: videoDoc?.videoId || "" });
+            return;
+        }
+
+        const indexedAt = transcriptDoc?.rag?.indexedAt ? new Date(transcriptDoc.rag.indexedAt).getTime() : 0;
+        const transcriptUpdatedAt = transcriptDoc?.updatedAt ? new Date(transcriptDoc.updatedAt).getTime() : 0;
+        const hasFreshIndex = indexedAt && transcriptUpdatedAt && indexedAt >= transcriptUpdatedAt && transcriptDoc?.rag?.model === PINECONE_EMBED_MODEL;
+        if(hasFreshIndex){
+            logRagEvent("ensure_chunks_reused", {
+                videoId: videoDoc?.videoId || "",
+                chunksCount: transcriptDoc?.rag?.chunksCount || 0,
+                model: transcriptDoc?.rag?.model || ""
+            });
+            return;
+        }
+
+        const chunks = buildTranscriptChunks(transcriptRows, videoDoc.videoId, videoDoc.playlist);
+        if(!chunks.length){
+            logRagEvent("ensure_chunks_no_chunks", { videoId: videoDoc?.videoId || "" });
+            return;
+        }
+
+        try {
+            await upsertChunksToPinecone(chunks);
+        } catch (error) {
+            const wrapped = new Error(`RAG_UPSERT_FAILED: ${error?.message || "unknown"}`);
+            wrapped.response = error?.response;
+            throw wrapped;
+        }
+        transcriptDoc.rag = {
+            indexedAt: new Date(),
+            chunksCount: chunks.length,
+            model: PINECONE_EMBED_MODEL
+        };
+        await transcriptDoc.save();
+        logRagEvent("ensure_chunks_done", { videoId: videoDoc?.videoId || "", chunksCount: chunks.length, model: PINECONE_EMBED_MODEL });
+    })();
+
+    if(videoKey){
+        ragIndexingJobs.set(videoKey, jobPromise);
+    }
+    try {
+        await jobPromise;
+    } finally {
+        if(videoKey){
+            ragIndexingJobs.delete(videoKey);
+        }
+    }
+}
+
+const getRagContextForQuiz = async ({ videoDoc = null, summaryText = "", focusConcept = "" }) => {
+    const queryText = [
+        videoDoc?.title || "",
+        (videoDoc?.topicTags || []).join(" "),
+        focusConcept || "",
+        summaryText || ""
+    ].join(" ").trim();
+
+    let matches = [];
+    try {
+        matches = await queryPineconeChunks({
+            text: queryText,
+            videoId: videoDoc?.videoId || "",
+            courseId: videoDoc?.playlist || "",
+            topK: 12
+        });
+    } catch (error) {
+        const wrapped = new Error(`RAG_QUERY_FAILED: ${error?.message || "unknown"}`);
+        wrapped.response = error?.response;
+        throw wrapped;
+    }
+
+    return matches.map((item) => ({
+        startSeconds: item.startSeconds,
+        endSeconds: item.endSeconds,
+        text: item.text.slice(0, 240)
+    }));
+}
+
+const shouldExposeRagDebug = () => {
+    const raw = `${process.env.DEBUG_RAG || ""}`.trim().toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes" || process.env.NODE_ENV !== "production";
 }
 
 const toTitleCase = (text = "") => {
@@ -568,7 +1240,91 @@ Rules:
     }
 }
 
-const normalizeQuizQuestions = (quizPayload) => {
+const containsHindiScript = (text = "") => /[\u0900-\u097F]/.test(`${text || ""}`);
+
+const looksLikeVerbatimRecall = (text = "") => {
+    const safe = `${text || ""}`.toLowerCase();
+    const recallPatterns = [
+        "according to the video",
+        "as mentioned in the video",
+        "what did the instructor say",
+        "what is said in this video",
+        "which statement is most consistent with what is explained around this part",
+        "from the transcript"
+    ];
+    return recallPatterns.some((pattern) => safe.includes(pattern));
+}
+
+const isLikelyTooSimpleQuestion = (text = "") => {
+    const safe = `${text || ""}`.trim().toLowerCase();
+    if(!safe){
+        return true;
+    }
+    const weakStarts = [
+        "which topic is central",
+        "what is this video about",
+        "which of the following is discussed",
+        "what is taught in this video"
+    ];
+    if(weakStarts.some((item) => safe.startsWith(item))){
+        return true;
+    }
+    return safe.split(" ").length < 8;
+}
+
+const isAppliedQuestion = (text = "", domain = "general") => {
+    const safe = `${text || ""}`.toLowerCase();
+    const commonApplied = [
+        "given",
+        "scenario",
+        "case",
+        "step",
+        "next",
+        "best",
+        "why",
+        "predict",
+        "outcome",
+        "choose"
+    ];
+    const codingApplied = [
+        "array",
+        "output",
+        "time complexity",
+        "space complexity",
+        "dry run",
+        "trace",
+        "iteration",
+        "recursion",
+        "stack",
+        "queue",
+        "tree",
+        "graph",
+        "sort"
+    ];
+    if(domain === "coding"){
+        return codingApplied.some((token) => safe.includes(token));
+    }
+    return commonApplied.some((token) => safe.includes(token));
+}
+
+const isQuizQuestionHighQuality = ({ question = "", options = [], explanation = "", hint = "", domain = "general" }) => {
+    const allText = [question, ...(options || []), explanation, hint].join(" ");
+    if(containsHindiScript(allText)){
+        return false;
+    }
+    if(looksLikeVerbatimRecall(question)){
+        return false;
+    }
+    if(isLikelyTooSimpleQuestion(question)){
+        return false;
+    }
+    if(!isAppliedQuestion(question, domain)){
+        return false;
+    }
+    return true;
+}
+
+const normalizeQuizQuestions = (quizPayload, { domain = "general" } = {}) => {
     const rawQuestions = Array.isArray(quizPayload?.questions) ? quizPayload.questions : [];
     const validated = rawQuestions.map((item, idx) => {
         const options = Array.isArray(item?.options) ? item.options.slice(0,4).map((opt) => `${opt}`.trim()) : [];
@@ -597,9 +1353,114 @@ const normalizeQuizQuestions = (quizPayload) => {
             validOptions: uniqueCount === 4
         };
     }).filter((item) => item.question && item.options.length === 4 && item.correctOptionIndex >= 0 && item.correctOptionIndex <= 3 && item.validOptions)
+    .filter((item) => isQuizQuestionHighQuality({
+        question: item.question,
+        options: item.options,
+        explanation: item.explanation,
+        hint: item.hint,
+        domain
+    }))
     .map(({ validOptions, ...item }) => item);
 
-    return validated.slice(0,8);
+    return validated.slice(0, QUIZ_QUESTION_COUNT);
+}
+
+const normalizeQuestionFingerprint = (text = "") => {
+    return `${text || ""}`
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+const collectPreviousQuestionFingerprints = ({ attempts = [], quizDoc = null }) => {
+    const set = new Set();
+    (attempts || []).forEach((attempt) => {
+        (attempt?.questionReview || []).forEach((item) => {
+            const fp = normalizeQuestionFingerprint(item?.question || "");
+            if(fp){
+                set.add(fp);
+            }
+        });
+    });
+    (quizDoc?.questions || []).forEach((item) => {
+        const fp = normalizeQuestionFingerprint(item?.question || "");
+        if(fp){
+            set.add(fp);
+        }
+    });
+    return set;
+}
+
+const countQuizOverlap = ({ questions = [], previousFingerprints = new Set() }) => {
+    if(!questions.length || !previousFingerprints?.size){
+        return 0;
+    }
+    return questions.reduce((acc, item) => {
+        const fp = normalizeQuestionFingerprint(item?.question || "");
+        if(fp && previousFingerprints.has(fp)){
+            return acc + 1;
+        }
+        return acc;
+    }, 0);
+}
+
+const diversifyQuizQuestions = ({
+    questions = [],
+    previousFingerprints = new Set(),
+    title = "",
+    topicTags = [],
+    transcriptDoc = null,
+    domain = "general",
+    maxRepeats = 2
+}) => {
+    if(!questions.length || !previousFingerprints?.size){
+        return questions;
+    }
+
+    const fallbackPool = buildFallbackQuizQuestions({
+        title,
+        topicTags,
+        transcriptDoc,
+        domain
+    });
+    const taken = new Set();
+    const next = [];
+    let repeatCount = 0;
+    let fallbackIdx = 0;
+
+    for(const question of questions){
+        const fp = normalizeQuestionFingerprint(question?.question || "");
+        const isPrev = fp && previousFingerprints.has(fp);
+        if(isPrev && repeatCount >= maxRepeats){
+            let replacement = null;
+            while(fallbackIdx < fallbackPool.length){
+                const candidate = fallbackPool[fallbackIdx];
+                fallbackIdx += 1;
+                const candidateFp = normalizeQuestionFingerprint(candidate?.question || "");
+                if(!candidateFp || previousFingerprints.has(candidateFp) || taken.has(candidateFp)){
+                    continue;
+                }
+                replacement = candidate;
+                taken.add(candidateFp);
+                break;
+            }
+            if(replacement){
+                next.push(replacement);
+                continue;
+            }
+        }
+
+        if(isPrev){
+            repeatCount += 1;
+        }
+        if(fp){
+            taken.add(fp);
+        }
+        next.push(question);
+    }
+
+    return next.slice(0, questions.length);
 }
 
 const inferQuizDomainProfile = ({ course = null, videoDoc = null, transcriptRows = [] }) => {
@@ -643,17 +1504,17 @@ const getQuizDifficultyPlan = ({ course = null, videoDoc = null, adaptiveDifficu
     const isTheoryHeavy = ["history", "theory", "concept", "foundation", "principles", "overview"].some((key) => combined.includes(key));
     const isHandsOn = ["project", "build", "implementation", "problem", "exercise", "lab", "practice", "case study"].some((key) => combined.includes(key));
 
-    let plan = { easy: 2, medium: 2, hard: 1 };
+    let plan = { easy: 2, medium: 3, hard: 3 };
     if(domain === "coding"){
-        plan = { easy: 1, medium: 2, hard: 2 };
+        plan = { easy: 1, medium: 3, hard: 4 };
     } else if(domain === "math"){
-        plan = { easy: 1, medium: 3, hard: 1 };
+        plan = { easy: 1, medium: 4, hard: 3 };
     } else if(domain === "exam-theory" || domain === "language"){
-        plan = { easy: 2, medium: 3, hard: 0 };
+        plan = { easy: 2, medium: 4, hard: 2 };
     } else if(isTheoryHeavy){
-        plan = { easy: 2, medium: 3, hard: 0 };
+        plan = { easy: 2, medium: 4, hard: 2 };
     } else if(isHandsOn){
-        plan = { easy: 1, medium: 3, hard: 1 };
+        plan = { easy: 1, medium: 4, hard: 3 };
     }
 
     if(style.includes("deep")){
@@ -663,30 +1524,35 @@ const getQuizDifficultyPlan = ({ course = null, videoDoc = null, adaptiveDifficu
     }
 
     if(adaptiveDifficulty === "easy"){
-        plan = { easy: 3, medium: 2, hard: 0 };
+        plan = { easy: 3, medium: 4, hard: 1 };
     } else if(adaptiveDifficulty === "hard"){
-        plan = { easy: 1, medium: 2, hard: 2 };
+        plan = { easy: 1, medium: 3, hard: 4 };
     }
 
     const total = plan.easy + plan.medium + plan.hard;
-    if(total !== 5){
-        const diff = 5 - total;
+    if(total !== QUIZ_QUESTION_COUNT){
+        const diff = QUIZ_QUESTION_COUNT - total;
         plan.medium += diff;
         if(plan.medium < 0){
             plan.medium = 0;
-            plan.easy = Math.max(0, 5 - plan.hard);
+            plan.easy = Math.max(0, QUIZ_QUESTION_COUNT - plan.hard);
         }
     }
 
     return plan;
 }
 
-const redistributeDifficulty = (questions = [], plan = { easy: 2, medium: 2, hard: 1 }) => {
-    const desiredOrder = [
+const redistributeDifficulty = (questions = [], plan = { easy: 2, medium: 3, hard: 3 }) => {
+    const desiredOrderFromPlan = [
         ...Array(plan.easy).fill("easy"),
         ...Array(plan.medium).fill("medium"),
         ...Array(plan.hard).fill("hard")
-    ].slice(0, questions.length);
+    ].slice(0, questions.length || QUIZ_QUESTION_COUNT);
+    const strictProgression = ["easy", "easy", "medium", "medium", "medium", "hard", "hard", "hard"]
+        .slice(0, questions.length || QUIZ_QUESTION_COUNT);
+    const desiredOrder = desiredOrderFromPlan.length === strictProgression.length
+        ? strictProgression
+        : desiredOrderFromPlan;
 
     const priorityScore = { easy: 1, medium: 2, hard: 3 };
     const sorted = [...questions].sort((a, b) => (priorityScore[a.difficulty] || 2) - (priorityScore[b.difficulty] || 2));
@@ -695,6 +1561,34 @@ const redistributeDifficulty = (questions = [], plan = { easy: 2, medium: 2, har
         ...question,
         difficulty: desiredOrder[idx] || question.difficulty || "medium"
     }));
+}
+
+const fillQuizQuestionsToTarget = ({
+    questions = [],
+    title = "",
+    topicTags = [],
+    transcriptDoc = null,
+    domain = "general"
+}) => {
+    const target = QUIZ_QUESTION_COUNT;
+    const current = [...(questions || [])];
+    if(current.length >= target){
+        return current.slice(0, target);
+    }
+    const existing = new Set(current.map((item) => normalizeQuestionFingerprint(item?.question || "")).filter(Boolean));
+    const fallback = buildFallbackQuizQuestions({ title, topicTags, transcriptDoc, domain });
+    for(const candidate of fallback){
+        const fp = normalizeQuestionFingerprint(candidate?.question || "");
+        if(!fp || existing.has(fp)){
+            continue;
+        }
+        current.push(candidate);
+        existing.add(fp);
+        if(current.length >= target){
+            break;
+        }
+    }
+    return current.slice(0, target);
 }
 
 const snapQuestionToTranscriptRange = ({ question = null, transcriptRows = [], videoDurationSeconds = 0 }) => {
@@ -781,27 +1675,207 @@ const enrichQuestionSources = ({ questions = [], transcriptRows = [], videoDurat
     });
 }
 
-const buildFallbackQuizQuestions = ({ title = "", topicTags = [], transcriptDoc = null }) => {
-    const transcriptItems = transcriptDoc?.transcript || [];
-    if(!transcriptItems.length){
-        const mainTopic = topicTags?.[0] || "general concept";
-        return [{
-            question: `Which topic is central in "${title || "this lesson"}"?`,
+const buildFallbackQuizQuestions = ({ title = "", topicTags = [], transcriptDoc = null, domain = "general" }) => {
+    const primaryTopic = `${topicTags?.[0] || "core concept"}`.toLowerCase();
+    const codingTemplates = [
+        {
+            question: `Given an array [5, 1, 4, 2, 8], after the first full pass of bubble sort, which array state is correct?`,
+            options: ["[1, 4, 2, 5, 8]", "[1, 5, 2, 4, 8]", "[5, 1, 4, 2, 8]", "[1, 2, 4, 5, 8]"],
+            correctOptionIndex: 0,
+            conceptTag: primaryTopic || "sorting",
+            difficulty: "medium",
+            explanation: "In one full pass, the largest element moves to the end through adjacent swaps.",
+            hint: "Track adjacent swaps from left to right for one complete iteration."
+        },
+        {
+            question: `For a recursive function with base case n <= 1 and call f(n-1), what is the main reason the base case is required?`,
+            options: ["To avoid infinite recursion", "To improve space complexity to O(1)", "To sort values automatically", "To remove stack usage completely"],
+            correctOptionIndex: 0,
+            conceptTag: primaryTopic || "recursion",
+            difficulty: "medium",
+            explanation: "Without a terminating condition, recursion would continue indefinitely.",
+            hint: "Think about when recursive calls stop."
+        },
+        {
+            question: `If an algorithm runs two nested loops over n elements, what is the typical time complexity?`,
+            options: ["O(n)", "O(log n)", "O(n^2)", "O(1)"],
+            correctOptionIndex: 2,
+            conceptTag: "complexity",
+            difficulty: "easy",
+            explanation: "Two full loops over n elements usually produce quadratic complexity.",
+            hint: "Count how many operations happen as n grows."
+        },
+        {
+            question: `In a DFS traversal, which data structure behavior is most directly used by recursion?`,
+            options: ["Queue (FIFO)", "Stack (LIFO)", "Hash table lookup", "Priority queue ordering"],
+            correctOptionIndex: 1,
+            conceptTag: primaryTopic || "graph",
+            difficulty: "medium",
+            explanation: "Recursive calls use the call stack, which follows LIFO behavior.",
+            hint: "Consider how the call stack grows and unwinds."
+        },
+        {
+            question: `For binary search on a sorted array, what condition must always hold before applying the method?`,
+            options: ["Array must be sorted", "Array length must be odd", "Array must contain distinct elements", "Target must be in first half"],
+            correctOptionIndex: 0,
+            conceptTag: primaryTopic || "search",
+            difficulty: "easy",
+            explanation: "Binary search relies on sorted order to discard half the search space each step.",
+            hint: "What property lets you eliminate half the range safely?"
+        },
+        {
+            question: `During insertion sort, after processing index i, what invariant is true for the subarray [0..i]?`,
+            options: ["It is sorted", "It is reverse sorted", "It has all duplicates removed", "Its maximum stays at index 0"],
+            correctOptionIndex: 0,
+            conceptTag: primaryTopic || "sorting",
+            difficulty: "medium",
+            explanation: "Insertion sort maintains a sorted prefix after each insertion.",
+            hint: "Think about what each pass guarantees."
+        },
+        {
+            question: `In two-pointer technique on a sorted array, when current sum is too large, what move is usually correct?`,
+            options: ["Move right pointer left", "Move left pointer right", "Move both pointers right", "Reset both pointers"],
+            correctOptionIndex: 0,
+            conceptTag: primaryTopic || "two-pointers",
+            difficulty: "medium",
+            explanation: "Decreasing the right pointer reduces the sum in a sorted array setup.",
+            hint: "Use sorted-order effect on sum."
+        },
+        {
+            question: `For BFS on an unweighted graph, why does the first time you reach a node give shortest path length from source?`,
+            options: ["BFS explores level by level", "BFS sorts edges by weight", "BFS uses recursion depth", "BFS always starts from leaf"],
+            correctOptionIndex: 0,
+            conceptTag: primaryTopic || "graph",
+            difficulty: "hard",
+            explanation: "BFS expansion in layers ensures minimal edge count on first visit.",
+            hint: "Consider traversal order by distance."
+        }
+    ];
+
+    const nonCodingTemplates = [
+        {
+            question: `In a practical scenario based on ${title || "this lesson"}, which approach best applies the core concept to reach a reliable outcome?`,
             options: [
-                `${mainTopic}`,
-                "Unrelated topic",
-                "Random concept",
-                "None of the above"
+                "Apply the concept step-by-step and validate assumptions",
+                "Memorize one definition and reuse it everywhere",
+                "Skip constraints and directly choose the first option",
+                "Ignore context and rely only on a keyword match"
             ],
             correctOptionIndex: 0,
-            conceptTag: mainTopic,
+            conceptTag: primaryTopic || "application",
+            difficulty: "medium",
+            explanation: "Applied understanding requires contextual reasoning and validation.",
+            hint: "Choose the option that uses reasoning, not rote recall."
+        },
+        {
+            question: `Which choice most likely represents a misconception when applying ${primaryTopic || "the concept"}?`,
+            options: [
+                "Using assumptions without checking context",
+                "Comparing alternatives before deciding",
+                "Mapping the concept to constraints",
+                "Evaluating trade-offs before execution"
+            ],
+            correctOptionIndex: 0,
+            conceptTag: primaryTopic || "misconceptions",
+            difficulty: "medium",
+            explanation: "Unchecked assumptions usually lead to incorrect application.",
+            hint: "Look for the option that skips reasoning steps."
+        },
+        {
+            question: `When two methods seem valid, what should be prioritized first for exam-style reasoning?`,
+            options: [
+                "Constraint fit and correctness",
+                "Most familiar wording",
+                "Longest explanation",
+                "Earliest mention in notes"
+            ],
+            correctOptionIndex: 0,
+            conceptTag: "reasoning",
             difficulty: "easy",
-            explanation: "The answer aligns with the lesson's primary topic.",
-            hint: "Pick the option that matches the video focus.",
-            sourceStartSeconds: 0,
-            sourceEndSeconds: 60,
-            sourceContext: "Video title/context based question."
-        }];
+            explanation: "Correctness under constraints is the first filter for method selection.",
+            hint: "Prioritize correctness over familiarity."
+        },
+        {
+            question: `If an approach fails in one edge scenario, what is the strongest next step?`,
+            options: [
+                "Identify why it fails and adjust the method",
+                "Ignore the edge case",
+                "Memorize the previous answer",
+                "Use the same approach unchanged"
+            ],
+            correctOptionIndex: 0,
+            conceptTag: "edge-cases",
+            difficulty: "medium",
+            explanation: "Edge-case failure analysis improves robust understanding.",
+            hint: "Robust methods handle edge scenarios explicitly."
+        },
+        {
+            question: `Which option demonstrates deeper understanding rather than surface recall?`,
+            options: [
+                "Explaining why one option works and others fail",
+                "Repeating one line from memory",
+                "Selecting by keyword only",
+                "Guessing based on option length"
+            ],
+            correctOptionIndex: 0,
+            conceptTag: "understanding",
+            difficulty: "medium",
+            explanation: "Comparative reasoning indicates conceptual mastery.",
+            hint: "Look for causal explanation, not memorization."
+        },
+        {
+            question: `A real-world case violates one assumption of the taught method. What is the best first response?`,
+            options: [
+                "Re-evaluate assumptions and adapt method boundaries",
+                "Apply the same method unchanged",
+                "Discard all constraints",
+                "Pick the fastest-looking option"
+            ],
+            correctOptionIndex: 0,
+            conceptTag: "assumptions",
+            difficulty: "hard",
+            explanation: "Method validity depends on assumptions; mismatch requires adaptation.",
+            hint: "Check method preconditions first."
+        },
+        {
+            question: `When two candidate explanations seem correct, which criterion is strongest in exam evaluation?`,
+            options: [
+                "Consistency with constraints and evidence",
+                "More familiar terminology",
+                "Longer sentence length",
+                "Higher confidence wording"
+            ],
+            correctOptionIndex: 0,
+            conceptTag: "evaluation",
+            difficulty: "medium",
+            explanation: "Evidence-constrained reasoning is preferred over stylistic confidence.",
+            hint: "Prioritize verifiable consistency."
+        },
+        {
+            question: `Which answer reflects transfer of concept to a new scenario?`,
+            options: [
+                "Adapting core principle to changed constraints",
+                "Repeating the original example verbatim",
+                "Memorizing one phrase",
+                "Ignoring contextual differences"
+            ],
+            correctOptionIndex: 0,
+            conceptTag: "transfer",
+            difficulty: "hard",
+            explanation: "Transfer means applying principles beyond the original example context.",
+            hint: "Look for adaptation, not repetition."
+        }
+    ];
+
+    const defaultSet = domain === "coding" ? codingTemplates : nonCodingTemplates;
+    const transcriptItems = transcriptDoc?.transcript || [];
+    if(!transcriptItems.length){
+        return defaultSet.map((item, idx) => ({
+            ...item,
+            sourceStartSeconds: idx * 30,
+            sourceEndSeconds: (idx * 30) + 45,
+            sourceContext: `Fallback context for ${item.conceptTag}.`
+        }));
     }
 
     const samplePoints = [
@@ -809,34 +1883,23 @@ const buildFallbackQuizQuestions = ({ title = "", topicTags = [], transcriptDoc 
         transcriptItems[Math.floor(transcriptItems.length * 0.3)],
         transcriptItems[Math.floor(transcriptItems.length * 0.5)],
         transcriptItems[Math.floor(transcriptItems.length * 0.7)],
-        transcriptItems[Math.floor(transcriptItems.length * 0.9)]
+        transcriptItems[Math.floor(transcriptItems.length * 0.9)],
+        transcriptItems[Math.floor(transcriptItems.length * 0.2)],
+        transcriptItems[Math.floor(transcriptItems.length * 0.4)],
+        transcriptItems[Math.floor(transcriptItems.length * 0.8)]
     ].filter(Boolean);
 
-    return samplePoints.slice(0, 5).map((point, idx) => {
+    const examSet = defaultSet.slice(0, QUIZ_QUESTION_COUNT);
+    return examSet.map((template, idx) => {
+        const point = samplePoints[idx] || samplePoints[samplePoints.length - 1] || {};
         const context = `${point?.text || ""}`.trim();
-        const words = context.split(" ").filter(Boolean);
-        const corePhrase = words.slice(0, Math.min(7, words.length)).join(" ") || "Main idea in this segment";
-        const distractor1 = words.slice(Math.max(0, words.length - 6)).join(" ") || "Different idea";
         const startSeconds = Math.max(0, Math.floor((point?.offset || 0) - 12));
         const endSeconds = startSeconds + 70;
-        const optionB = distractor1 && distractor1.toLowerCase() !== corePhrase.toLowerCase() ? distractor1 : "A different claim from a separate segment";
-
         return {
-            question: `Which statement is most consistent with what is explained around this part of the lesson?`,
-            options: [
-                corePhrase,
-                optionB,
-                "A random unrelated statement not discussed here",
-                "A contradiction of the explanation in this section"
-            ],
-            correctOptionIndex: 0,
-            conceptTag: topicTags?.[Math.min(idx, (topicTags?.length || 1) - 1)] || "lesson-concept",
-            difficulty: idx < 2 ? "easy" : "medium",
-            explanation: "This option best matches the explanation in the referenced transcript segment.",
-            hint: "Choose the option that aligns with the exact explanation near the given time.",
+            ...template,
             sourceStartSeconds: startSeconds,
             sourceEndSeconds: endSeconds,
-            sourceContext: context.slice(0, 220)
+            sourceContext: context.slice(0, 220) || `Context around ${template.conceptTag}.`
         };
     });
 }
@@ -901,6 +1964,123 @@ const buildQuizAnalysis = ({ questionReview = [], percentage = 0 }) => {
         recommendedActions,
         overallFeedback
     };
+}
+
+const buildHeuristicReadiness = ({ percentage = 0, pausePerMinute = 0, avgPlaybackSpeed = 1, watchedSeconds = 0, videoDurationSeconds = 0 }) => {
+    let score = Number(percentage || 0);
+
+    if(pausePerMinute > 8){
+        score -= 8;
+    } else if(pausePerMinute > 5){
+        score -= 4;
+    } else if(pausePerMinute >= 1 && pausePerMinute <= 4){
+        score += 2;
+    }
+
+    if(avgPlaybackSpeed > 2.25){
+        score -= 8;
+    } else if(avgPlaybackSpeed > 1.75){
+        score -= 4;
+    } else if(avgPlaybackSpeed >= 0.9 && avgPlaybackSpeed <= 1.4){
+        score += 3;
+    }
+
+    const watchedRatio = videoDurationSeconds > 0 ? (watchedSeconds / Math.max(1, videoDurationSeconds)) : 0;
+    if(watchedRatio < 0.35){
+        score -= 15;
+    } else if(watchedRatio < 0.55){
+        score -= 8;
+    } else if(watchedRatio >= 0.8){
+        score += 4;
+    }
+
+    score = Math.max(0, Math.min(100, Math.round(score)));
+    const canProceed = score >= 65 && percentage >= 55;
+    const skillLevel = score >= 85 ? "advanced" : score >= 70 ? "strong" : score >= 50 ? "developing" : "needs-practice";
+    const readinessReason = canProceed
+        ? "Good understanding signal from quiz accuracy and viewing behavior."
+        : "Reattempt recommended to strengthen understanding before moving forward.";
+
+    return {
+        comprehensionScore: score,
+        skillLevel,
+        canProceed,
+        readinessReason,
+        nextStep: canProceed ? "continue" : "reattempt"
+    };
+}
+
+const buildReadinessAssessment = async ({ course = null, videoDoc = null, percentage = 0, engagement = {} }) => {
+    const videoDurationSeconds = parseIsoDurationToSeconds(videoDoc?.duration || "PT0S");
+    const heuristic = buildHeuristicReadiness({
+        percentage,
+        pausePerMinute: engagement.pausePerMinute || 0,
+        avgPlaybackSpeed: engagement.avgPlaybackSpeed || 1,
+        watchedSeconds: engagement.watchedSeconds || 0,
+        videoDurationSeconds
+    });
+
+    try {
+        const result = await generateText({
+            model: groq("llama-3.3-70b-versatile"),
+            temperature: 0,
+            messages: [
+                {
+                    role: "system",
+                    content: `
+You are a strict JSON API.
+Compute readiness after quiz using behavior and score.
+Return JSON:
+{
+  "comprehensionScore": 0,
+  "skillLevel": "needs-practice|developing|strong|advanced",
+  "canProceed": true,
+  "readinessReason": "string",
+  "nextStep": "continue|reattempt"
+}
+Rules:
+- Score 0-100.
+- If quiz score is low and behavior indicates weak comprehension, prefer reattempt.
+- Keep readinessReason short and actionable.
+No markdown.
+`
+                },
+                {
+                    role: "user",
+                    content: JSON.stringify({
+                        subject: course?.subject || "general",
+                        videoTitle: videoDoc?.title || "",
+                        quizPercentage: percentage,
+                        engagement,
+                        heuristic
+                    })
+                }
+            ],
+            response_format: { type: "json_object" }
+        });
+
+        const parsed = safeJsonParse(result?.text || "");
+        if(!parsed){
+            return heuristic;
+        }
+
+        const llmScore = Math.max(0, Math.min(100, parseInt(parsed?.comprehensionScore, 10) || heuristic.comprehensionScore));
+        const llmSkill = `${parsed?.skillLevel || heuristic.skillLevel}`.trim().toLowerCase();
+        const skillLevel = ["needs-practice", "developing", "strong", "advanced"].includes(llmSkill) ? llmSkill : heuristic.skillLevel;
+        const canProceed = typeof parsed?.canProceed === "boolean" ? parsed.canProceed : heuristic.canProceed;
+        const nextStep = `${parsed?.nextStep || (canProceed ? "continue" : "reattempt")}`.trim().toLowerCase() === "continue" ? "continue" : "reattempt";
+        const readinessReason = `${parsed?.readinessReason || heuristic.readinessReason}`.trim() || heuristic.readinessReason;
+
+        return {
+            comprehensionScore: llmScore,
+            skillLevel,
+            canProceed: canProceed && llmScore >= 55,
+            readinessReason,
+            nextStep
+        };
+    } catch (error) {
+        return heuristic;
+    }
 }
 
 const getAdaptiveDifficulty = (latestAttempt = null) => {
@@ -1720,8 +2900,34 @@ export const getCourseProgressInsights = async (req,res) => {
             ? Math.min(100, Math.floor((actualCompletedVideosToday / todaysGoalVideos) * 100))
             : 100;
 
+        const courseHistory = userDailyProgress
+            .filter((item) => `${item.courseId}` === `${id}` && item?.date)
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+        const todayStart = toStartOfDay(new Date());
+        const lookbackStart = new Date(todayStart);
+        lookbackStart.setDate(lookbackStart.getDate() - 13);
+        const historyWindow = courseHistory.filter((item) => {
+            const dateObj = toStartOfDay(item.date);
+            return dateObj >= lookbackStart && dateObj <= todayStart;
+        });
+        const totalWindowVideos = historyWindow.reduce((acc, item) => acc + (item?.completedVideos || 0), 0);
+        const activeWindowDays = historyWindow.filter((item) => (item?.completedVideos || 0) > 0).length;
+        const calendarWindowDays = 14;
+        const avgByCalendarDay = totalWindowVideos / calendarWindowDays;
+        const avgByActiveDay = activeWindowDays ? (totalWindowVideos / activeWindowDays) : 0;
+        const observedDailyRate = Math.max(
+            0,
+            Number(((avgByCalendarDay * 0.7) + (avgByActiveDay * 0.3)).toFixed(2))
+        );
+
+        const effectiveDailyRate = Math.max(
+            0.5,
+            Number(Math.max(recommendedDailyVideos, observedDailyRate).toFixed(2))
+        );
+        const weeklyCommitDays = Math.max(1, Math.min(7, parseInt(course?.weeklyCommitDays || 7, 10) || 7));
+        const commitFactor = 7 / weeklyCommitDays;
         const projectedDays = remainingVideosCount > 0
-            ? Math.max(1, Math.ceil(remainingVideosCount / Math.max(1, recommendedDailyVideos)))
+            ? Math.max(1, Math.ceil((remainingVideosCount / effectiveDailyRate) * commitFactor))
             : 0;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -1737,6 +2943,9 @@ export const getCourseProgressInsights = async (req,res) => {
             completedVideosCount,
             remainingVideosCount,
             recommendedDailyVideos,
+            effectiveDailyRate,
+            observedDailyRate,
+            activeDaysLast14: activeWindowDays,
             daysToTarget: projectedDays,
             todaysGoalVideos,
             todaysCompletedVideos: actualCompletedVideosToday,
@@ -1751,143 +2960,149 @@ export const getCourseProgressInsights = async (req,res) => {
 
 export const getAi = async (req,res) => {
     try {
-        const { messages, videoId, start, end, currentQues, title, description } = req.body;
-        const checkIfExists = await Transcript.find({
-            videoId
-        });
-        let rawTranscript;
-        if(checkIfExists.length===0){
+        const { messages = [], videoId, start, end, currentQues, title, description } = req.body;
+        const transcriptDoc = await ensureTranscriptDoc(videoId);
+        const rawTranscript = transcriptDoc?.transcript || [];
+        const userQuestion = `${currentQues?.content || messages?.[messages.length - 1]?.content || ""}`.trim();
+        const ragStatus = {
+            enabled: getPineconeConfig().isEnabled,
+            indexed: false,
+            retrievedChunks: 0,
+            fallbackReason: ""
+        };
+
+        const ownerVideoDoc = await Video.findOne({
+            videoId,
+            owner: req.user.username
+        }).sort({ createdAt: -1 });
+
+        let ragContext = [];
+        const ragIndexed = Boolean(transcriptDoc?.rag?.indexedAt);
+        if(ownerVideoDoc && transcriptDoc && ragIndexed){
             try {
-                rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoId}`,{
-                    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
+                ragStatus.indexed = true;
+                const matches = await queryPineconeChunks({
+                    text: [userQuestion, title, description].filter(Boolean).join(" "),
+                    videoId: ownerVideoDoc.videoId,
+                    courseId: ownerVideoDoc.playlist,
+                    topK: 8,
+                    startSeconds: Number.isFinite(start) ? start : null,
+                    endSeconds: Number.isFinite(end) ? end : null
                 });
-                
-                if (rawTranscript && rawTranscript.length > 0) {
-                    const newAddTs = new Transcript({
-                        videoId,
-                        transcript: rawTranscript
-                    });
-                    await newAddTs.save();
-                }
-                // const newAddTs = new Transcript({
-                //     videoId,
-                //     transcript: rawTranscript
-                // });
-                // await newAddTs.save();
+                ragContext = matches.map((item) => `[${item.startSeconds}s-${item.endSeconds}s] ${item.text}`);
+                ragStatus.retrievedChunks = matches.length;
             } catch (error) {
-                rawTranscript = false;
+                ragContext = [];
+                ragStatus.fallbackReason = error?.message || "rag-fallback";
+                logRagEvent("ai_rag_error", {
+                    videoId: `${videoId || ""}`,
+                    status: error?.response?.status || "",
+                    detail: error?.response?.data || {},
+                    message: error?.message || ""
+                });
             }
-            
+        } else if(ownerVideoDoc && transcriptDoc){
+            ragStatus.fallbackReason = "rag-not-ready";
+            // Fire-and-forget prewarm so AI response stays fast.
+            Promise.resolve()
+                .then(() => ensureRagChunksForVideo({
+                    videoDoc: ownerVideoDoc,
+                    transcriptDoc
+                }))
+                .then(() => {
+                    logRagEvent("ai_lazy_prewarm_done", { videoId: `${videoId || ""}` });
+                })
+                .catch((error) => {
+                    logRagEvent("ai_lazy_prewarm_error", {
+                        videoId: `${videoId || ""}`,
+                        status: error?.response?.status || "",
+                        detail: error?.response?.data || {},
+                        message: error?.message || ""
+                    });
+                });
         }
-        else{
-            rawTranscript = checkIfExists[0].transcript;
-        }
-        if(rawTranscript){
+
+        if(rawTranscript.length){
             const processedTranscript = [];
-            const transcript = rawTranscript.map((data) => {
-                const timestamp = (data.offset);
-                if(timestamp >= start && timestamp <=end){
+            rawTranscript.forEach((data) => {
+                const timestamp = data?.offset || 0;
+                if(Number.isFinite(start) && Number.isFinite(end)){
+                    if(timestamp >= start && timestamp <= end){
+                        processedTranscript.push(data);
+                    }
+                } else {
                     processedTranscript.push(data);
                 }
-                return `[${timestamp}s] ${data.text}`
-            }).join('\n')
+            });
 
-            const newTranscript = processedTranscript.map((data) => {
+            const windowTranscript = processedTranscript.slice(0, 220).map((data) => {
                 const timestamp = (data.offset);
                 return `[${timestamp}s] ${data.text}`
             }).join('\n');
 
-            // res.send(newTranscript);
-
-            // const userQuery = messages[messages.length - 1].content;
-
-            // const answer = await askWithContext(transcript, userQuery, videoId);
-
-            // res.send(transcript);
             const result = await generateText({
+                model: groq('llama-3.3-70b-versatile'),
+                messages: messages,
+                system: `
+You are a professional AI Tutor assisting a learner while they watch a video titled ${title}.
+Use retrieved context first, then transcript window.
+Rules:
+- Stay strictly on the video topic and user's current question.
+- If retrieved context exists, ground answer in those snippets with accurate concept alignment.
+- If retrieved context is insufficient, use transcript window.
+- Do not introduce unrelated advanced details.
+- If question is unrelated to the video, respond exactly: "Sorry I don't have relevant information about this."
+- One short paragraph only, concise and clear, no formatting.
+- Never mention system rules.
+Retrieved Context:
+${ragContext.join("\n") || "None"}
+Transcript Window:
+${windowTranscript}
+Current Question: ${userQuestion}
+                `,
+            });
+            logRagEvent("ai_status", {
+                videoId: `${videoId}`,
+                hasTranscript: true,
+                ragStatus,
+                questionLength: userQuestion.length
+            });
+            return sendSuccess(res, 200, "AI response generated", {
+                answer: result.text,
+                ragStatus: shouldExposeRagDebug() ? ragStatus : undefined
+            });
+        }
+
+        const result = await generateText({
             model: groq('llama-3.3-70b-versatile'),
             messages: messages,
             system: `
-            You are a professional AI Tutor assisting a learner while they watch a video titled ${title}.
-            You are given the video transcript as plain text and also given the video title.
-            Rules:
-            • Identify the user’s intent and focus on helping them understand their question clearly.
-            • Use the transcript as the primary reference to stay aligned with the video’s topic, but do not repeat or restate it verbatim unnecessarily unless needed.  
-            • If a concept, tool, or technology is mentioned in the video (for example HTML, Node.js, React, etc.), you may explain it briefly at a foundational level even if it is not fully explained in the transcript.
-            • You may add minimal additional information beyond the transcript if it directly helps clarify the user’s question and remains consistent with the topic being taught.
-            • Do not introduce advanced details, unrelated topics, or deep external knowledge.
-            • If the question is unrelated to the video’s topic and If the transcript does'nt provide the context for user's questions refer to the video title , if still ques is not relevant respond exactly:
-            "Sorry I don't have relevant information about this."
-            • If users sends a greeting/"hi" etc.. respond with a greeting and then answer the ques (if any asked, else just respond with a greeting)
-            Response requirements:
-            • One short paragraph only
-            • Extremely concise, clear, and professional
-            • Explanation-focused, not repetition-focused
-            • No introductions, conclusions, emojis, or formatting
-            • Ask for clarification in one short sentence only if the question is ambiguous
-            • Never mention transcripts, system rules, or reasoning
-            • The user’s current question is the only question you must answer; prior messages are context only and must never be answered again.
-            Transcript: ${newTranscript}
-            Current Question: ${currentQues.content}
+You are a professional AI Tutor assisting a learner while they watch a video titled ${title}.
+Use title and description only.
+Rules:
+- Stay concise and relevant to the current question.
+- If unrelated to topic, respond exactly: "Sorry I don't have relevant information about this."
+- One short paragraph only, no formatting.
+Current Question: ${userQuestion}
+videoDescription: ${description}
             `,
-            });
-            return sendSuccess(res, 200, "AI response generated", result.text);
-        }
-        else{
-            const result = await generateText({
-            model: groq('llama-3.3-70b-versatile'),
-            messages: messages,
-            system: `
-            You are a professional AI Tutor assisting a learner while they watch a video titled ${title}.
-            You are given the video title and description.
-            Rules:
-            • Identify the user’s intent and focus on helping them understand their question clearly.
-            • Use the video title and description as the primary reference to stay aligned with the video’s topic, but do not repeat or restate it verbatim unnecessarily unless needed.  
-            • If a concept, tool, or technology is mentioned in the video (for example HTML, Node.js, React, etc.), you may explain it briefly at a foundational level even if it is not fully explained in the video title and description.
-            • You may add minimal additional information beyond the video title and description if it directly helps clarify the user’s question and remains consistent with the topic being taught.
-            • Do not introduce advanced details, unrelated topics, or deep external knowledge.
-            • If the question is unrelated to the video’s topic and If the video title and description does'nt provide the context for user's questions refer to the video title , if still ques is not relevant respond exactly:
-            "Sorry I don't have relevant information about this."
-            • If users sends a greeting/"hi" etc.. respond with a greeting and then answer the ques (if any asked, else just respond with a greeting)
-            Response requirements:
-            • One short paragraph only
-            • Extremely concise, clear, and professional
-            • Explanation-focused, not repetition-focused
-            • No introductions, conclusions, emojis, or formatting
-            • Ask for clarification in one short sentence only if the question is ambiguous
-            • Never mention video title and description, system rules, or reasoning
-            • The user’s current question is the only question you must answer; prior messages are context only and must never be answered again.
-            Current Question: ${currentQues.content}
-            videoDescription: ${description}
-            `,
-            });
-            return sendSuccess(res, 200, "AI response generated", result.text);
-        }
-        
-
+        });
+        logRagEvent("ai_status", {
+            videoId: `${videoId}`,
+            hasTranscript: false,
+            ragStatus,
+            questionLength: userQuestion.length
+        });
+        return sendSuccess(res, 200, "AI response generated", {
+            answer: result.text,
+            ragStatus: shouldExposeRagDebug() ? ragStatus : undefined
+        });
     } catch (error) {
         console.error("Chat Error:", error);
         return sendError(res, 500, "Server Error", error.message);
     }
-
-    // const response = await generateText({
-    // model: groq('llama-3.1-8b-instant'),
-    // prompt: `heres the transcripts : ${transcript}, now can u answer ques based ion this video? 
-    // Ques : I dont understand what he taught at 475s `,
-    // });
-
-    // res.send(response.text);
-
-    // gemini
-    // const ai = new GoogleGenAI({
-    //     apiKey: process.env.GEMINI_API_KEY
-    // });
-    // const response = await ai.models.generateContent({
-    //     model: "gemini-2.5-flash",
-    //     contents: "Here is a video link: https://www.youtube.com/watch?v=IBrmsyy9R94&pp=ygUYbGF6eSBsb2FkaW5nIGluIHJlYWN0IGpz,  Now can you see/learn/know what is inside the videoa and answer questions based on the video if asked? ",
-    // });
-    // res.send(response.text);
 }
+
 export const getSummary = async (req,res) => {
     try {
         const { videoId, title, description} = req.body;
@@ -1899,6 +3114,30 @@ export const getSummary = async (req,res) => {
             return sendSuccess(res, 200, "Summary fetched successfully", data);
         }
         else{
+            let ragSummaryContext = [];
+            try {
+                const ownerVideoDoc = await Video.findOne({
+                    videoId,
+                    owner: req.user.username
+                }).sort({ createdAt: -1 });
+                const transcriptDoc = await ensureTranscriptDoc(videoId);
+                if(ownerVideoDoc && transcriptDoc){
+                    await ensureRagChunksForVideo({
+                        videoDoc: ownerVideoDoc,
+                        transcriptDoc
+                    });
+                    const matches = await queryPineconeChunks({
+                        text: [title, description, "summary key concepts"].filter(Boolean).join(" "),
+                        videoId: ownerVideoDoc.videoId,
+                        courseId: ownerVideoDoc.playlist,
+                        topK: 10
+                    });
+                    ragSummaryContext = matches.map((item) => `[${item.startSeconds}s-${item.endSeconds}s] ${item.text}`);
+                }
+            } catch (error) {
+                ragSummaryContext = [];
+            }
+
             const result = await generateText({
             model: groq('meta-llama/llama-4-scout-17b-16e-instruct'),
             temperature: 0,
@@ -1914,6 +3153,7 @@ export const getSummary = async (req,res) => {
             - If the description lacks sufficient educational detail, **use the Video Title as the primary source of truth**.
             - Generate comprehensive, textbook-quality explanations using your internal knowledge of the topic.
             - Ensure all content is **strictly relevant** to the topic mentioned in the title.
+            - If retrieved transcript context exists, prioritize it as the factual source.
             ### 3. Standalone Notes Rule
             - Do **NOT** reference the video, instructor, speaker, or phrases like *"in this video"*.
             - Write the notes as **independent academic material**, suitable for revision and exam preparation.
@@ -1949,6 +3189,7 @@ export const getSummary = async (req,res) => {
             Here are the title and descriptions of the video for you to reference to-
             videoTitle: ${title},
             videoDescriptions: ${description},
+            retrievedContext: ${ragSummaryContext.join("\n") || "none"}
             `},
                 { role: "user", content: "generate summary" }
             ],
@@ -2024,6 +3265,30 @@ export const getRecommendedProblems = async (req,res) => {
             return sendSuccess(res, 200, "Problems fetched successfully", data);
         }
         else{
+            let ragProblemContext = [];
+            try {
+                const ownerVideoDoc = await Video.findOne({
+                    videoId,
+                    owner: req.user.username
+                }).sort({ createdAt: -1 });
+                const transcriptDoc = await ensureTranscriptDoc(videoId);
+                if(ownerVideoDoc && transcriptDoc){
+                    await ensureRagChunksForVideo({
+                        videoDoc: ownerVideoDoc,
+                        transcriptDoc
+                    });
+                    const matches = await queryPineconeChunks({
+                        text: [title, description, "coding problems dsa topics"].filter(Boolean).join(" "),
+                        videoId: ownerVideoDoc.videoId,
+                        courseId: ownerVideoDoc.playlist,
+                        topK: 10
+                    });
+                    ragProblemContext = matches.map((item) => `[${item.startSeconds}s-${item.endSeconds}s] ${item.text}`);
+                }
+            } catch (error) {
+                ragProblemContext = [];
+            }
+
             const result = await generateText({
             model: groq('groq/compound'),
             temperature: 0,
@@ -2039,6 +3304,7 @@ export const getRecommendedProblems = async (req,res) => {
             - STRICT EXCLUSION: If the video is about Web Development (React, CSS), System Design, DevOps, or General Tech News, it is NOT relevant.
             - SOURCE OF TRUTH (CRITICAL):
             - **Focus STRICTLY** on the educational content taught in the video.
+            - If retrieved transcript context is available, use it as the primary source.
             - **Look for TIMESTAMPS/CHAPTERS** in the Description (e.g., "05:30 Binary Search", "10:00 Recursion") as the primary signal for what is taught.
             - **IGNORE** promotional text, social media links, "About me" sections, or generic channel descriptions. 
             - If a topic is mentioned in the description but NOT covered in the transcript/chapters, DO NOT include it.
@@ -2092,7 +3358,8 @@ export const getRecommendedProblems = async (req,res) => {
             `},
                 { role: "user", content: JSON.stringify({
                     videoTitle: title,
-                    videoDescription: description
+                    videoDescription: description,
+                    retrievedContext: ragProblemContext
                 }) }
             ],
             response_format: { type: "json_object" }
@@ -2255,7 +3522,19 @@ export const updateVideoNotes = async (req,res) => {
             return sendError(res, 403, "Video not found or unauthorized");
         }
 
-        const createdNewNote = new Notes(newNote);
+        const notePayload = {
+            videoId: existingVideo._id,
+            timestamp: Math.max(0, parseInt(newNote?.timestamp || 0, 10) || 0),
+            notesContent: `${newNote?.notesContent || ""}`.trim(),
+            category: normalizeNoteCategory(newNote?.category || "theory"),
+            reviewLevel: 0,
+            nextReviewAt: new Date()
+        };
+        if(!notePayload.notesContent){
+            return sendError(res, 400, "notesContent is required");
+        }
+
+        const createdNewNote = new Notes(notePayload);
         await createdNewNote.save();
         existingVideo.notes.push(createdNewNote._id);
         await existingVideo.save();
@@ -2284,16 +3563,38 @@ export const getVideoNotes = async (req,res) => {
 
         const notes = await Notes.find({
             videoId: req.params.id
-        })
-        if(notes.length===0){
-            return sendSuccess(res, 200, "Notes fetched successfully", [{
-                videoId: req.params.id,
-                timestamp: 200,
-                notesContent: "Sample Note"
-            }])
-        }
+        }).sort({ nextReviewAt: -1, createdAt: -1 });
+        const activeNotes = notes.filter((note) => note?.isArchived !== true);
+        const now = new Date();
+        const grouped = activeNotes.reduce((acc, note) => {
+            const category = normalizeNoteCategory(note?.category || "theory");
+            if(!acc[category]){
+                acc[category] = [];
+            }
+            acc[category].push(note);
+            return acc;
+        }, {});
+        Object.keys(grouped).forEach((key) => {
+            grouped[key] = (grouped[key] || []).sort((a, b) => {
+                const aTime = a?.nextReviewAt ? new Date(a.nextReviewAt).getTime() : 0;
+                const bTime = b?.nextReviewAt ? new Date(b.nextReviewAt).getTime() : 0;
+                return aTime - bTime;
+            });
+        });
+        const dueNow = activeNotes
+            .filter((note) => !note?.nextReviewAt || new Date(note.nextReviewAt) <= now)
+            .sort((a, b) => {
+                const aTime = a?.nextReviewAt ? new Date(a.nextReviewAt).getTime() : 0;
+                const bTime = b?.nextReviewAt ? new Date(b.nextReviewAt).getTime() : 0;
+                return aTime - bTime;
+            });
 
-        return sendSuccess(res, 200, "Notes fetched successfully", notes);
+        return sendSuccess(res, 200, "Notes fetched successfully", {
+            notes: activeNotes,
+            groupedByCategory: grouped,
+            dueNow,
+            dueCount: dueNow.length
+        });
         // console.log("Notes: ",notes);
 
     } catch (error) {
@@ -2301,6 +3602,189 @@ export const getVideoNotes = async (req,res) => {
         return sendError(res, 500, "Server Error", error.message);
     }
 
+}
+
+export const getCourseNoteReviewQueue = async (req,res) => {
+    try {
+        const { courseId = "" } = req.params;
+        if(!courseId){
+            return sendError(res, 400, "courseId is required");
+        }
+
+        const course = await Course.findOne({
+            _id: courseId,
+            owner: req.user.username
+        });
+        if(!course){
+            return sendError(res, 404, "Course not found");
+        }
+
+        const videoIds = (await Video.find({
+            playlist: courseId,
+            owner: req.user.username
+        }).select("_id")).map((item) => item._id);
+
+        if(!videoIds.length){
+            return sendSuccess(res, 200, "Review queue fetched successfully", {
+                dueNow: [],
+                upcoming: [],
+                dueCount: 0,
+                upcomingCount: 0,
+                byCategory: {}
+            });
+        }
+
+        const now = new Date();
+        const notes = await Notes.find({
+            videoId: { $in: videoIds },
+            isArchived: { $ne: true }
+        }).sort({ nextReviewAt: 1 }).limit(1000);
+
+        const dueNow = notes.filter((note) => !note?.nextReviewAt || new Date(note.nextReviewAt) <= now);
+        const upcoming = notes.filter((note) => note?.nextReviewAt && new Date(note.nextReviewAt) > now).slice(0, 50);
+        const byCategory = notes.reduce((acc, note) => {
+            const key = normalizeNoteCategory(note?.category || "theory");
+            acc[key] = (acc[key] || 0) + 1;
+            return acc;
+        }, {});
+
+        return sendSuccess(res, 200, "Review queue fetched successfully", {
+            dueNow,
+            upcoming,
+            dueCount: dueNow.length,
+            upcomingCount: upcoming.length,
+            byCategory
+        });
+    } catch (error) {
+        console.error("Note Queue Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
+
+export const suggestVideoNoteCategory = async (req,res) => {
+    try {
+        const { videoId = "", notesContent = "" } = req.body;
+        if(!videoId || !`${notesContent || ""}`.trim()){
+            return sendError(res, 400, "videoId and notesContent are required");
+        }
+        const videoDoc = await Video.findOne({
+            _id: videoId,
+            owner: req.user.username
+        });
+        if(!videoDoc){
+            return sendError(res, 403, "Video not found or unauthorized");
+        }
+        const category = await suggestNoteCategoryWithAi({
+            content: notesContent,
+            title: videoDoc?.title || "",
+            description: videoDoc?.description || ""
+        });
+        return sendSuccess(res, 200, "Suggested note category fetched successfully", {
+            category
+        });
+    } catch (error) {
+        console.error("Note Category Suggestion Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
+
+export const reviewVideoNote = async (req,res) => {
+    try {
+        const { noteId = "", videoId = "", rating = 3 } = req.body;
+        if(!noteId || !videoId){
+            return sendError(res, 400, "noteId and videoId are required");
+        }
+
+        const videoDoc = await Video.findOne({
+            _id: videoId,
+            owner: req.user.username
+        });
+        if(!videoDoc){
+            return sendError(res, 403, "Video not found or unauthorized");
+        }
+
+        const note = await Notes.findOne({
+            _id: noteId,
+            videoId: videoDoc._id
+        });
+        if(!note){
+            return sendError(res, 404, "Note not found");
+        }
+
+        const ratingNum = Math.max(1, Math.min(5, parseInt(rating, 10) || 3));
+        let nextLevel = note.reviewLevel || 0;
+        if(ratingNum >= 4){
+            nextLevel += 1;
+        } else if(ratingNum <= 2){
+            nextLevel = Math.max(0, nextLevel - 1);
+        }
+        nextLevel = Math.max(0, Math.min(6, nextLevel));
+        const intervalDays = getNoteReviewIntervalDays(nextLevel);
+        const nextReviewAt = toStartOfDay(new Date());
+        nextReviewAt.setDate(nextReviewAt.getDate() + intervalDays);
+
+        note.reviewLevel = nextLevel;
+        note.lastReviewedAt = new Date();
+        note.nextReviewAt = nextReviewAt;
+        note.reviewHistory = [
+            {
+                reviewedAt: new Date(),
+                rating: ratingNum,
+                nextReviewAt
+            },
+            ...(note.reviewHistory || [])
+        ].slice(0, 30);
+        await note.save();
+
+        return sendSuccess(res, 200, "Note review updated successfully", {
+            noteId: note._id,
+            reviewLevel: note.reviewLevel,
+            nextReviewAt: note.nextReviewAt,
+            lastReviewedAt: note.lastReviewedAt
+        });
+    } catch (error) {
+        console.error("Note Review Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
+
+export const updateVideoNoteMeta = async (req,res) => {
+    try {
+        const { noteId = "", videoId = "", category = "", notesContent = "" } = req.body;
+        if(!noteId || !videoId){
+            return sendError(res, 400, "noteId and videoId are required");
+        }
+        const videoDoc = await Video.findOne({
+            _id: videoId,
+            owner: req.user.username
+        });
+        if(!videoDoc){
+            return sendError(res, 403, "Video not found or unauthorized");
+        }
+
+        const update = {};
+        if(`${category || ""}`.trim()){
+            update.category = normalizeNoteCategory(category);
+        }
+        if(`${notesContent || ""}`.trim()){
+            update.notesContent = `${notesContent}`.trim();
+        }
+        if(!Object.keys(update).length){
+            return sendError(res, 400, "No valid fields to update");
+        }
+
+        const note = await Notes.findOneAndUpdate({
+            _id: noteId,
+            videoId: videoDoc._id
+        }, update, { new: true });
+        if(!note){
+            return sendError(res, 404, "Note not found");
+        }
+        return sendSuccess(res, 200, "Note updated successfully", note);
+    } catch (error) {
+        console.error("Note Update Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
 }
 
 export const updateLastPlayedCourse = async (req,res) => {
@@ -2385,6 +3869,76 @@ export const rebuildCourseModulesController = async (req,res) => {
         return sendError(res, 500, "Server Error", error.message);
     }
 }
+
+export const prewarmVideoRagController = async (req,res) => {
+    try {
+        const { videoDbId = "" } = req.body;
+        if(!videoDbId){
+            return sendError(res, 400, "videoDbId is required");
+        }
+
+        const videoDoc = await Video.findOne({
+            _id: videoDbId,
+            owner: req.user.username
+        });
+        if(!videoDoc){
+            return sendError(res, 404, "Video not found");
+        }
+
+        const transcriptDoc = await ensureTranscriptDoc(videoDoc.videoId);
+        if(!transcriptDoc){
+            logRagEvent("prewarm_status", {
+                videoDbId,
+                videoId: videoDoc.videoId,
+                warmed: false,
+                reason: "transcript-unavailable"
+            });
+            return sendSuccess(res, 200, "RAG prewarm skipped: transcript unavailable", {
+                warmed: false,
+                reason: "transcript-unavailable"
+            });
+        }
+
+        try {
+            await ensureRagChunksForVideo({
+                videoDoc,
+                transcriptDoc
+            });
+        } catch (error) {
+            const detailBody = error?.response?.data || {};
+            logRagEvent("prewarm_status", {
+                videoDbId,
+                videoId: videoDoc.videoId,
+                warmed: false,
+                reason: "rag-fallback",
+                detail: error?.message || "",
+                body: detailBody
+            });
+            return sendSuccess(res, 200, "RAG prewarm skipped: index unavailable", {
+                warmed: false,
+                reason: "rag-fallback",
+                detail: error?.message || "",
+                body: detailBody
+            });
+        }
+
+        logRagEvent("prewarm_status", {
+            videoDbId,
+            videoId: videoDoc.videoId,
+            warmed: true,
+            chunksCount: transcriptDoc?.rag?.chunksCount || 0
+        });
+        return sendSuccess(res, 200, "RAG prewarmed successfully", {
+            warmed: true,
+            videoId: videoDoc.videoId,
+            chunksCount: transcriptDoc?.rag?.chunksCount || 0,
+            model: transcriptDoc?.rag?.model || PINECONE_EMBED_MODEL
+        });
+    } catch (error) {
+        console.error("RAG Prewarm Error:", error);
+        return sendError(res, 500, "Server Error", error.message);
+    }
+}
 export const deleteVideoNotes = async (req,res) => {
     try {
         const {noteId, videoId} = req.body;
@@ -2428,7 +3982,7 @@ export const deleteVideoNotes = async (req,res) => {
 
 export const getVideoQuiz = async (req,res) => {
     try {
-        const { videoDbId, adaptive = false, focusConcept = "" } = req.body;
+        const { videoDbId, adaptive = false, forceRegenerate = false, focusConcept = "" } = req.body;
         if(!videoDbId){
             return sendError(res, 400, "videoDbId is required");
         }
@@ -2457,26 +4011,26 @@ export const getVideoQuiz = async (req,res) => {
 
         const latestAttempt = attempts.length ? attempts[0] : null;
         const adaptiveDifficulty = getAdaptiveDifficulty(latestAttempt);
-        const shouldRegenerateAdaptive = Boolean(adaptive && quizDoc && latestAttempt);
+        const adaptiveCooldownSeconds = Math.max(30, parseInt(process.env.ADAPTIVE_QUIZ_REGEN_COOLDOWN_SECONDS || "120", 10) || 120);
+        const quizAgeSeconds = quizDoc?.updatedAt ? Math.floor((Date.now() - new Date(quizDoc.updatedAt).getTime()) / 1000) : Number.MAX_SAFE_INTEGER;
+        const shouldRegenerateAdaptive = Boolean(adaptive && quizDoc && latestAttempt && quizAgeSeconds >= adaptiveCooldownSeconds);
+        const shouldForceRegenerate = Boolean(adaptive && forceRegenerate && quizDoc);
+        const previousQuestionFingerprints = collectPreviousQuestionFingerprints({
+            attempts,
+            quizDoc
+        });
+        const previousQuestionsForPrompt = Array.from(previousQuestionFingerprints).slice(0, 20);
+        const ragStatus = {
+            enabled: getPineconeConfig().isEnabled,
+            indexed: false,
+            retrievedChunks: 0,
+            fallbackReason: "",
+            reusedExistingQuiz: false
+        };
 
-        if(!quizDoc || shouldRegenerateAdaptive){
+        if(!quizDoc || shouldRegenerateAdaptive || shouldForceRegenerate){
             const summaryDoc = await Summary.findOne({ videoId: videoDoc.videoId }).sort({ createdAt: -1 });
-            let transcriptDoc = await Transcript.findOne({ videoId: videoDoc.videoId }).sort({ createdAt: -1 });
-            if(!transcriptDoc){
-                try {
-                    const rawTranscript = await fetchTranscript(`https://www.youtube.com/watch?v=${videoDoc.videoId}`,{
-                        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
-                    });
-                    if(rawTranscript && rawTranscript.length){
-                        transcriptDoc = await Transcript.create({
-                            videoId: videoDoc.videoId,
-                            transcript: rawTranscript
-                        });
-                    }
-                } catch (error) {
-                    transcriptDoc = null;
-                }
-            }
+            const transcriptDoc = await ensureTranscriptDoc(videoDoc.videoId);
             const transcriptRows = (transcriptDoc?.transcript || []).filter((row) => `${row?.text || ""}`.trim());
             const transcriptSampleRows = transcriptRows
                 .slice(0, 220)
@@ -2484,6 +4038,26 @@ export const getVideoQuiz = async (req,res) => {
                     offset: Math.floor(row?.offset || 0),
                     text: `${row?.text || ""}`.trim().slice(0, 180)
                 }));
+            let ragTimeline = [];
+            try {
+                await ensureRagChunksForVideo({
+                    videoDoc,
+                    transcriptDoc
+                });
+                ragStatus.indexed = true;
+                ragTimeline = await getRagContextForQuiz({
+                    videoDoc,
+                    summaryText: summaryDoc?.summary || "",
+                    focusConcept
+                });
+                ragStatus.retrievedChunks = ragTimeline.length;
+            } catch (ragError) {
+                const ragHttpStatus = ragError?.response?.status || "";
+                const ragData = ragError?.response?.data;
+                console.warn("RAG context fallback:", ragHttpStatus, ragError?.message || ragError, ragData || "");
+                ragTimeline = [];
+                ragStatus.fallbackReason = ragError?.message || "rag-fallback";
+            }
             const videoDurationSeconds = parseIsoDurationToSeconds(videoDoc?.duration || "PT0S");
             const domainProfile = inferQuizDomainProfile({
                 course: courseDoc,
@@ -2508,11 +4082,7 @@ export const getVideoQuiz = async (req,res) => {
 
             let quizQuestions = [];
             try {
-                const result = await generateText({
-                    model: groq('meta-llama/llama-4-scout-17b-16e-instruct'),
-                    temperature: 0.1,
-                    messages: [
-                        { role: "system", content: `
+                const buildQuizSystemPrompt = (strictRetry = false) => `
 You are a strict JSON API for generating a post-video quiz based ONLY on the provided transcript/time-stamped content.
 Return only JSON object:
 {
@@ -2532,9 +4102,9 @@ Return only JSON object:
   ]
 }
 Rules:
-- Generate exactly 5 MCQs.
-- Questions must be based on given transcript content only.
-- Do not add outside facts not supported by transcript/summary.
+- Generate exactly ${QUIZ_QUESTION_COUNT} MCQs.
+- Questions must test conceptual understanding and application of the taught topic, not memory of exact wording.
+- Use transcript/summary only as topic boundary and factual guardrails. Do not ask "what was said in video" style questions.
 - Each question must have exactly 4 options.
 - correctOptionIndex must be 0-3.
 - Keep conceptTag concise.
@@ -2542,30 +4112,59 @@ Rules:
 - Hint must guide thought process only, never reveal correct answer.
 - sourceStartSeconds and sourceEndSeconds must be valid timestamps from transcript content.
 - Keep sourceContext short and directly tied to the referenced transcript segment.
-- Keep distractors plausible but false according to transcript.
+- Keep distractors plausible, close, and exam-like.
+- Language must be English only. Never use Hindi or mixed-language options.
+- At least 6 questions must be application/problem-solving style.
+- Difficulty must strictly progress from earlier to later questions:
+  Q1-Q2 easy, Q3-Q5 medium, Q6-Q8 hard.
 - Target difficulty: ${adaptiveDifficulty}
 - Target domain: ${domainProfile.domain}
 - Domain rule: ${domainInstructionMap[domainProfile.domain] || domainInstructionMap.general}
 - If focusConcept is provided, prioritize that concept in at least 3 questions.
+- Prefer source timestamps from retrievedContext first. If retrievedContext is empty, use transcriptTimeline.
+- Avoid repeating previous attempts. At most 2 questions may overlap with previousQuestions.
+- Coding domain requirement:
+  Ask dry-run, next-step, complexity, edge-case, or debugging-reasoning MCQs (e.g., recursion traces, sorting passes, pointer movement, tree/graph traversal outcomes).
+- Non-coding domain requirement:
+  Ask scenario/case-based reasoning questions (application, comparison, inference), not direct definition recall.
+${strictRetry ? "- Previous output quality failed. Increase rigor and avoid simple/direct questions.\n- Ensure all 5 questions are medium/hard exam quality.\n" : ""}
 Do not return markdown.
-`},
-                        { role: "user", content: JSON.stringify({
-                            title: videoDoc.title,
-                            description: videoDoc.description,
-                            subject: courseDoc?.subject || "general",
-                            topicTags: videoDoc.topicTags || [],
-                            summary: summaryDoc?.summary || "",
-                            transcriptTimeline: transcriptSampleRows,
-                            targetDifficulty: adaptiveDifficulty,
-                            focusConcept,
-                            preferredDifficultyMix: difficultyPlan
-                        }) }
-                    ],
-                    response_format: { type: "json_object" }
+`;
+
+                const buildQuizUserPayload = () => ({
+                    title: videoDoc.title,
+                    description: videoDoc.description,
+                    subject: courseDoc?.subject || "general",
+                    topicTags: videoDoc.topicTags || [],
+                    summary: summaryDoc?.summary || "",
+                    retrievedContext: ragTimeline,
+                    transcriptTimeline: transcriptSampleRows,
+                    previousQuestions: previousQuestionsForPrompt,
+                    targetDifficulty: adaptiveDifficulty,
+                    focusConcept,
+                    preferredDifficultyMix: difficultyPlan
                 });
 
-                const parsed = safeJsonParse(result?.text || "");
-                quizQuestions = normalizeQuizQuestions(parsed);
+                for(let attemptIndex = 0; attemptIndex < 2; attemptIndex += 1){
+                    const result = await generateText({
+                        model: groq('meta-llama/llama-4-scout-17b-16e-instruct'),
+                        temperature: attemptIndex === 0 ? 0.1 : 0,
+                        messages: [
+                            { role: "system", content: buildQuizSystemPrompt(attemptIndex > 0) },
+                        { role: "user", content: JSON.stringify({
+                            ...buildQuizUserPayload(),
+                            retryReason: attemptIndex > 0 ? "Previous set had low-rigor or non-English/direct recall issues." : ""
+                        }) }
+                        ],
+                        response_format: { type: "json_object" }
+                    });
+
+                    const parsed = safeJsonParse(result?.text || "");
+                    quizQuestions = normalizeQuizQuestions(parsed, { domain: domainProfile.domain });
+                    if(quizQuestions.length >= QUIZ_QUESTION_COUNT){
+                        break;
+                    }
+                }
             } catch (quizGenErr) {
                 quizQuestions = [];
             }
@@ -2574,9 +4173,43 @@ Do not return markdown.
                 quizQuestions = buildFallbackQuizQuestions({
                     title: videoDoc.title,
                     topicTags: videoDoc.topicTags || [],
-                    transcriptDoc
+                    transcriptDoc,
+                    domain: domainProfile.domain
                 });
             }
+
+            quizQuestions = fillQuizQuestionsToTarget({
+                questions: quizQuestions,
+                title: videoDoc.title,
+                topicTags: videoDoc.topicTags || [],
+                transcriptDoc,
+                domain: domainProfile.domain
+            });
+
+            const overlapCount = countQuizOverlap({
+                questions: quizQuestions,
+                previousFingerprints: previousQuestionFingerprints
+            });
+            if(overlapCount > 2){
+                quizQuestions = diversifyQuizQuestions({
+                    questions: quizQuestions,
+                    previousFingerprints: previousQuestionFingerprints,
+                    title: videoDoc.title,
+                    topicTags: videoDoc.topicTags || [],
+                    transcriptDoc,
+                    domain: domainProfile.domain,
+                    maxRepeats: 2
+                });
+            }
+
+            quizQuestions = fillQuizQuestionsToTarget({
+                questions: quizQuestions,
+                title: videoDoc.title,
+                topicTags: videoDoc.topicTags || [],
+                transcriptDoc,
+                domain: domainProfile.domain
+            });
+
             quizQuestions = enrichQuestionSources({
                 questions: quizQuestions,
                 transcriptRows,
@@ -2597,7 +4230,33 @@ Do not return markdown.
                 });
                 await quizDoc.save();
             }
+        } else {
+            ragStatus.reusedExistingQuiz = true;
+            const transcriptDoc = await Transcript.findOne({ videoId: videoDoc.videoId }).sort({ createdAt: -1 });
+            const hasIndexedRag = Boolean(transcriptDoc?.rag?.indexedAt && (transcriptDoc?.rag?.chunksCount || 0) > 0);
+            ragStatus.indexed = hasIndexedRag;
+
+            if(hasIndexedRag && ragStatus.enabled){
+                try {
+                    const summaryDoc = await Summary.findOne({ videoId: videoDoc.videoId }).sort({ createdAt: -1 });
+                    const ragTimeline = await getRagContextForQuiz({
+                        videoDoc,
+                        summaryText: summaryDoc?.summary || "",
+                        focusConcept
+                    });
+                    ragStatus.retrievedChunks = ragTimeline.length;
+                } catch (ragError) {
+                    ragStatus.fallbackReason = ragError?.message || "rag-query-fallback";
+                }
+            }
         }
+        logRagEvent("quiz_status", {
+            videoDbId: `${videoDbId}`,
+            adaptive: Boolean(adaptive),
+            shouldRegenerateAdaptive,
+            shouldForceRegenerate,
+            ragStatus
+        });
 
         const finalAttempts = await QuizAttempt.find({
             quizId: quizDoc._id,
@@ -2626,7 +4285,8 @@ Do not return markdown.
         return sendSuccess(res, 200, "Quiz fetched successfully", {
             quiz: sanitizedQuiz,
             latestAttempt: finalLatestAttempt,
-            attempts: finalAttempts
+            attempts: finalAttempts,
+            ragStatus: shouldExposeRagDebug() ? ragStatus : undefined
         });
     } catch (error) {
         console.error("Quiz Fetch Error:", error);
@@ -2636,7 +4296,7 @@ Do not return markdown.
 
 export const submitVideoQuiz = async (req,res) => {
     try {
-        const { quizId, videoDbId, answers = [], timeSpentSeconds = 0 } = req.body;
+        const { quizId, videoDbId, answers = [], timeSpentSeconds = 0, engagementMetrics = {} } = req.body;
 
         if(!quizId || !videoDbId){
             return sendError(res, 400, "quizId and videoDbId are required");
@@ -2693,6 +4353,26 @@ export const submitVideoQuiz = async (req,res) => {
             questionReview,
             percentage
         });
+        const pauseCount = Math.max(0, parseInt(engagementMetrics?.pauseCount || 0, 10) || 0);
+        const avgPlaybackSpeedRaw = Number(engagementMetrics?.avgPlaybackSpeed || 1);
+        const avgPlaybackSpeed = Number.isFinite(avgPlaybackSpeedRaw) ? Number(Math.max(0.5, Math.min(3, avgPlaybackSpeedRaw)).toFixed(2)) : 1;
+        const watchedSeconds = Math.max(0, parseInt(engagementMetrics?.watchedSeconds || 0, 10) || 0);
+        const pausePerMinute = Number(((pauseCount / Math.max(1, watchedSeconds / 60))).toFixed(2));
+        const courseDoc = await Course.findOne({
+            _id: videoDoc.playlist,
+            owner: req.user.username
+        });
+        const readiness = await buildReadinessAssessment({
+            course: courseDoc,
+            videoDoc,
+            percentage,
+            engagement: {
+                pauseCount,
+                avgPlaybackSpeed,
+                watchedSeconds,
+                pausePerMinute
+            }
+        });
         const transcriptDoc = await Transcript.findOne({ videoId: videoDoc.videoId }).sort({ createdAt: -1 });
         const revisionClips = buildRevisionClips({
             questionReview,
@@ -2711,6 +4391,17 @@ export const submitVideoQuiz = async (req,res) => {
             totalQuestions,
             percentage,
             timeSpentSeconds: Math.max(0, parseInt(timeSpentSeconds || 0, 10) || 0),
+            engagement: {
+                pauseCount,
+                avgPlaybackSpeed,
+                watchedSeconds,
+                pausePerMinute
+            },
+            comprehensionScore: readiness.comprehensionScore,
+            skillLevel: readiness.skillLevel,
+            canProceed: readiness.canProceed,
+            readinessReason: readiness.readinessReason,
+            nextStep: readiness.nextStep,
             conceptBreakdown: analysis.conceptBreakdown,
             difficultyBreakdown: analysis.difficultyBreakdown,
             strengths: analysis.strengths,

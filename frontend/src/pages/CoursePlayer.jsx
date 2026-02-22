@@ -17,6 +17,7 @@ import {
   ExternalLink,
   ClipboardPen,
   CircleHelp,
+  X,
 } from "lucide-react";
 
 import ReactMarkdown from "react-markdown";
@@ -76,6 +77,15 @@ const CoursePlayer = () => {
     },
   ]);
   const videoRef = useRef(null); // this means this - {current: null}:  useRef gives you an object that looks like this: { current: initialValue }. This object stays the same for the entire life of the component.
+  const ragWarmedVideoSetRef = useRef(new Set());
+  const playbackMetricsRef = useRef({
+    pauseCount: 0,
+    speedSum: 1,
+    speedSamples: 1,
+    watchedSeconds: 0,
+    lastTime: 0,
+    isPlaying: false,
+  });
   // const plyrRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [notesLoading, setNotesLoading] = useState(true);
@@ -89,12 +99,17 @@ const CoursePlayer = () => {
   const [input, setInput] = useState("");
   const chatContainerRef = useRef(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [aiRagStatus, setAiRagStatus] = useState(null);
   const [currentVideoNotes, setCurrentVideoNotes] = useState([]);
+  const [notesByCategory, setNotesByCategory] = useState({});
+  const [dueNotes, setDueNotes] = useState([]);
+  const [noteCategoryFilter, setNoteCategoryFilter] = useState("all");
   const [isToolsOpen, setIsToolsOpen] = useState(true);
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
   const [isIdeOpen, setIsIdeOpen] = useState(false);
   const [isExcaliOpen, setIsExcaliOpen] = useState(false);
   const [notesInput, setNotesInput] = useState("");
+  const [noteCategory, setNoteCategory] = useState("theory");
   const navigate = useNavigate();
   const [problemsData, setProblemsData] = useState([]);
   const [relevant, setRelevant] = useState(true);
@@ -102,6 +117,7 @@ const CoursePlayer = () => {
   const [quizLoading, setQuizLoading] = useState(false);
   const [quizSubmitLoading, setQuizSubmitLoading] = useState(false);
   const [quizData, setQuizData] = useState(null);
+  const [quizRagStatus, setQuizRagStatus] = useState(null);
   const [quizAnswers, setQuizAnswers] = useState({});
   const [quizResult, setQuizResult] = useState(null);
   const [quizAttempts, setQuizAttempts] = useState([]);
@@ -125,6 +141,9 @@ const CoursePlayer = () => {
   const [rebuildingModules, setRebuildingModules] = useState(false);
   const [moduleRebuildStatus, setModuleRebuildStatus] = useState("");
   const [showQuizAdvanced, setShowQuizAdvanced] = useState(false);
+  const [noteRevisionLoadingId, setNoteRevisionLoadingId] = useState("");
+  const [noteCategorySuggesting, setNoteCategorySuggesting] = useState(false);
+  const [courseNoteQueue, setCourseNoteQueue] = useState({ dueCount: 0, upcomingCount: 0, byCategory: {} });
 
   const [ideLanguage, setIdeLanguage] = useState("javascript");
   const [ideVersion, setIdeVersion] = useState(LANGUAGE_VERSIONS["javascript"]);
@@ -199,6 +218,7 @@ const CoursePlayer = () => {
     setIsProblemButtonOpen(true);
     setShowEndQuizPrompt(false);
     setQuizData(null);
+    setQuizRagStatus(null);
     setQuizAnswers({});
     setQuizResult(null);
     setQuizAttempts([]);
@@ -316,7 +336,7 @@ const CoursePlayer = () => {
     }
   };
 
-  const getQuizData = async ({ adaptive = false, focusConcept = "" } = {}) => {
+  const getQuizData = async ({ adaptive = false, forceRegenerate = false, focusConcept = "" } = {}) => {
     if (!data?.[activeIndex]?._id) {
       return;
     }
@@ -328,6 +348,7 @@ const CoursePlayer = () => {
         {
           videoDbId: data?.[activeIndex]?._id,
           adaptive,
+          forceRegenerate,
           focusConcept,
         },
         {
@@ -336,14 +357,21 @@ const CoursePlayer = () => {
       );
       const quizPayload = getApiData(response);
       setQuizData(quizPayload?.quiz || null);
+      setQuizRagStatus(quizPayload?.ragStatus || null);
       setQuizAnswers({});
       setQuizHintOpenMap({});
       setQuizAttempts(Array.isArray(quizPayload?.attempts) ? quizPayload.attempts : []);
       const latestAttempt = quizPayload?.latestAttempt || null;
-      setQuizResult(latestAttempt);
-      setSelectedAttemptId(latestAttempt?._id || "");
-      if (!latestAttempt) {
+      if (adaptive) {
+        setQuizResult(null);
+        setSelectedAttemptId("");
         setQuizStartedAt(Date.now());
+      } else {
+        setQuizResult(latestAttempt);
+        setSelectedAttemptId(latestAttempt?._id || "");
+        if (!latestAttempt) {
+          setQuizStartedAt(Date.now());
+        }
       }
     } catch (error) {
       console.log(error);
@@ -408,6 +436,30 @@ const CoursePlayer = () => {
     }
   };
 
+  const prewarmCurrentVideoRag = async () => {
+    const videoDbId = data?.[activeIndex]?._id;
+    if (!videoDbId) {
+      return;
+    }
+    if (ragWarmedVideoSetRef.current.has(videoDbId)) {
+      return;
+    }
+    ragWarmedVideoSetRef.current.add(videoDbId);
+    try {
+      await axios.post(
+        `${import.meta.env.VITE_API_URL}/course/rag/prewarm`,
+        {
+          videoDbId,
+        },
+        {
+          withCredentials: true,
+        }
+      );
+    } catch {
+      ragWarmedVideoSetRef.current.delete(videoDbId);
+    }
+  };
+
   const handleQuizOptionSelect = (questionIndex, optionIndex) => {
     if (quizSubmitLoading || quizResult) {
       return;
@@ -425,7 +477,7 @@ const CoursePlayer = () => {
     setQuizHintOpenMap({});
     setQuizError("");
     setQuizStartedAt(Date.now());
-    getQuizData({ adaptive: true });
+    getQuizData({ adaptive: true, forceRegenerate: true });
   };
 
   const startFocusedReQuiz = (conceptTag) => {
@@ -440,6 +492,7 @@ const CoursePlayer = () => {
     setQuizStartedAt(Date.now());
     getQuizData({
       adaptive: true,
+      forceRegenerate: true,
       focusConcept: conceptTag,
     });
   };
@@ -469,6 +522,10 @@ const CoursePlayer = () => {
     setQuizSubmitLoading(true);
     setQuizError("");
     try {
+      const speedSamples = playbackMetricsRef.current.speedSamples || 1;
+      const avgPlaybackSpeed = Number(
+        ((playbackMetricsRef.current.speedSum || 1) / Math.max(1, speedSamples)).toFixed(2)
+      );
       const response = await axios.post(
         `${import.meta.env.VITE_API_URL}/course/quiz/submit`,
         {
@@ -476,6 +533,11 @@ const CoursePlayer = () => {
           videoDbId: data?.[activeIndex]?._id,
           answers,
           timeSpentSeconds: quizStartedAt ? Math.floor((Date.now() - quizStartedAt) / 1000) : 0,
+          engagementMetrics: {
+            pauseCount: playbackMetricsRef.current.pauseCount || 0,
+            avgPlaybackSpeed,
+            watchedSeconds: Math.floor(playbackMetricsRef.current.watchedSeconds || 0),
+          },
         },
         {
           withCredentials: true,
@@ -508,6 +570,13 @@ const CoursePlayer = () => {
     
   }, []);
 
+  useEffect(() => {
+    if (!data?.[activeIndex]?._id) {
+      return;
+    }
+    prewarmCurrentVideoRag();
+  }, [data, activeIndex]);
+
   const getNotesData = async () => {
     try {
       const notesApiData = await axios.get(
@@ -517,11 +586,39 @@ const CoursePlayer = () => {
         }
       );
       const notesPayload = getApiData(notesApiData);
-      setCurrentVideoNotes(notesPayload || []);
+      if (Array.isArray(notesPayload)) {
+        setCurrentVideoNotes(notesPayload || []);
+        setNotesByCategory({});
+        setDueNotes([]);
+      } else {
+        setCurrentVideoNotes(notesPayload?.notes || []);
+        setNotesByCategory(notesPayload?.groupedByCategory || {});
+        setDueNotes(notesPayload?.dueNow || []);
+      }
     } catch (error) {
       console.log(error);
     } finally {
       setNotesLoading(false);
+    }
+  };
+
+  const getCourseNoteReviewQueue = async () => {
+    if (!courseIdFromUrl) {
+      return;
+    }
+    try {
+      const response = await axios.get(
+        `${import.meta.env.VITE_API_URL}/course/notes/review-queue/${courseIdFromUrl}`,
+        { withCredentials: true }
+      );
+      const payload = getApiData(response) || {};
+      setCourseNoteQueue({
+        dueCount: payload?.dueCount || 0,
+        upcomingCount: payload?.upcomingCount || 0,
+        byCategory: payload?.byCategory || {},
+      });
+    } catch (error) {
+      console.log(error);
     }
   };
 
@@ -581,6 +678,7 @@ const CoursePlayer = () => {
         { withCredentials: true }
       );
       await getNotesData();
+      await getCourseNoteReviewQueue();
     } catch (error) {
       console.log(error);
     }
@@ -619,12 +717,14 @@ const CoursePlayer = () => {
               data?.[activeIndex]?.progressTime ||
               0,
             notesContent: notesInput,
+            category: noteCategory,
           },
         },
         { withCredentials: true }
       );
 
       await getNotesData();
+      await getCourseNoteReviewQueue();
 
       // setCurrentVideoNotes((prev) => [...prev, {
       //   videoId: data?.[activeIndex]?._id,
@@ -636,6 +736,56 @@ const CoursePlayer = () => {
     } catch (error) {
       console.log(error);
       setNotesLoading(false);
+    }
+  };
+
+  const suggestNoteCategory = async () => {
+    const text = `${notesInput || ""}`.trim();
+    if (!text || !data?.[activeIndex]?._id) {
+      return;
+    }
+    setNoteCategorySuggesting(true);
+    try {
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/course/update/video/notes/suggest-category`,
+        {
+          videoId: data?.[activeIndex]?._id,
+          notesContent: text,
+        },
+        { withCredentials: true }
+      );
+      const payload = getApiData(response);
+      if (payload?.category) {
+        setNoteCategory(payload.category);
+      }
+    } catch (error) {
+      console.log(error);
+    } finally {
+      setNoteCategorySuggesting(false);
+    }
+  };
+
+  const reviewNoteNow = async (noteId, rating = 3) => {
+    if (!noteId) {
+      return;
+    }
+    setNoteRevisionLoadingId(noteId);
+    try {
+      await axios.post(
+        `${import.meta.env.VITE_API_URL}/course/update/video/notes/review`,
+        {
+          videoId: data?.[activeIndex]?._id,
+          noteId,
+          rating,
+        },
+        { withCredentials: true }
+      );
+      await getNotesData();
+      await getCourseNoteReviewQueue();
+    } catch (error) {
+      console.log(error);
+    } finally {
+      setNoteRevisionLoadingId("");
     }
   };
 
@@ -769,11 +919,19 @@ const CoursePlayer = () => {
           },
           { withCredentials: true }
         );
+        const aiPayload = getApiData(resp);
+        if (aiPayload && typeof aiPayload === "object" && aiPayload.ragStatus) {
+          setAiRagStatus(aiPayload.ragStatus);
+        }
+        const aiAnswer =
+          typeof aiPayload === "string"
+            ? aiPayload
+            : aiPayload?.answer || "Sorry, I couldn't generate a response right now.";
         const newerMessages = [
           ...newMessages,
           {
             role: "system",
-            content: getApiData(resp),
+            content: aiAnswer,
           },
         ];
         setMessages(newerMessages);
@@ -836,6 +994,13 @@ const CoursePlayer = () => {
   const latestQuizTrendDelta = latestQuizAttempt && previousQuizAttempt
     ? (latestQuizAttempt?.percentage || 0) - (previousQuizAttempt?.percentage || 0)
     : null;
+  const noteCategoryKeys = Object.keys(notesByCategory || {});
+  const filteredDueNotes = noteCategoryFilter === "all"
+    ? (dueNotes || [])
+    : (dueNotes || []).filter((note) => `${note?.category || ""}`.toLowerCase() === noteCategoryFilter);
+  const filteredNotesByCategory = noteCategoryFilter === "all"
+    ? (notesByCategory || {})
+    : { [noteCategoryFilter]: (notesByCategory?.[noteCategoryFilter] || []) };
   const moduleGroups = data.reduce((acc, video, index) => {
     const moduleKey = video.moduleTitle || "Module: General";
     const savedProgress = JSON.parse(localStorage.getItem(`video_${video.videoId}_progress`));
@@ -882,6 +1047,14 @@ const CoursePlayer = () => {
   }, [data]);
 
   useEffect(() => {
+    playbackMetricsRef.current = {
+      pauseCount: 0,
+      speedSum: 1,
+      speedSamples: 1,
+      watchedSeconds: 0,
+      lastTime: 0,
+      isPlaying: false,
+    };
     const player = new Plyr(videoRef.current, {
       //this videoRef.current injects this player into the div tag where it is referrenced to
       controls: [
@@ -905,6 +1078,9 @@ const CoursePlayer = () => {
 
     player.on("ready", (event) => {
       playerInstanceRef.current = player;
+      const speed = Number(player?.speed || 1);
+      playbackMetricsRef.current.speedSum = speed;
+      playbackMetricsRef.current.speedSamples = 1;
       // if(!JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))){
       //     const obj = JSON.stringify({
       //       progressTime: 0,
@@ -954,6 +1130,17 @@ const CoursePlayer = () => {
     player.on("timeupdate", (event) => {
       //simple event listener when currentTime attribute of player updates
       const time = event.detail.plyr.currentTime;
+      const speed = Number(event.detail.plyr.speed || 1);
+      const lastTime = playbackMetricsRef.current.lastTime || 0;
+      const delta = time - lastTime;
+      if (playbackMetricsRef.current.isPlaying && delta > 0 && delta < 6) {
+        playbackMetricsRef.current.watchedSeconds += delta;
+      }
+      playbackMetricsRef.current.lastTime = time;
+      if (Number.isFinite(speed) && speed > 0) {
+        playbackMetricsRef.current.speedSum += speed;
+        playbackMetricsRef.current.speedSamples += 1;
+      }
       setCurrentTime(time);
       if (
         JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))
@@ -1001,6 +1188,7 @@ const CoursePlayer = () => {
     });
     player.on("seeked", (event) => {
       const time = event.detail.plyr.currentTime;
+      playbackMetricsRef.current.lastTime = time;
       setCurrentTime(time);
       if (
         JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))
@@ -1047,6 +1235,8 @@ const CoursePlayer = () => {
     });
     player.on("ended", (event) => {
       const time = event.detail.plyr.currentTime;
+      playbackMetricsRef.current.lastTime = time;
+      playbackMetricsRef.current.isPlaying = false;
       setCurrentTime(time);
       if (
         JSON.parse(localStorage.getItem(`video_${currentVideoId}_progress`))
@@ -1126,6 +1316,23 @@ const CoursePlayer = () => {
       // }
       // event.detail.plyr.stop();
       setShowEndQuizPrompt(true);
+    });
+    player.on("play", () => {
+      playbackMetricsRef.current.isPlaying = true;
+      playbackMetricsRef.current.lastTime = Number(player.currentTime || 0);
+    });
+    player.on("pause", () => {
+      if (!player.ended && Number(player.currentTime || 0) > 1) {
+        playbackMetricsRef.current.pauseCount += 1;
+      }
+      playbackMetricsRef.current.isPlaying = false;
+    });
+    player.on("ratechange", () => {
+      const speed = Number(player.speed || 1);
+      if (Number.isFinite(speed) && speed > 0) {
+        playbackMetricsRef.current.speedSum += speed;
+        playbackMetricsRef.current.speedSamples += 1;
+      }
     });
   }, [currentVideoId]);
 
@@ -1548,9 +1755,20 @@ const CoursePlayer = () => {
                 }`}
               >
                 <div className="w-full max-w-md rounded-md border border-white/10 bg-[#111010]/95 p-5">
-                  <p className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
+                  <div className="flex justify-between items-center">
+                    <p className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
                     Video Completed
                   </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowEndQuizPrompt(false)}
+                      className="rounded-sm border border-white/10 bg-white/5 p-1.5 text-zinc-300 hover:bg-white/10 hover:text-white transition-colors"
+                      aria-label="Close quiz prompt"
+                      title="Close"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
                   <h3 className="mt-2 text-lg font-bold text-zinc-100">
                     Do you want to attempt the quiz now?
                   </h3>
@@ -1585,7 +1803,7 @@ const CoursePlayer = () => {
               <h2 className="text-md md:text-sm font-bold text-zinc-500">
                 {data[activeIndex].channelTitle}
               </h2>
-              <div className="mt-4 border border-white/10 bg-[#111010]/70 rounded-md p-4 max-w-4xl">
+              <div className="mt-6 border border-white/10 bg-[#111010]/70 rounded-md p-4 max-w-6xl">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">
                     Course Progress
@@ -1792,47 +2010,7 @@ const CoursePlayer = () => {
                       <p className="px-3 pb-2 text-[10px] text-zinc-500">{moduleRebuildStatus}</p>
                     </div>
 
-                    <div className="border border-white/10 bg-black/20 rounded-md p-3 space-y-2">
-                      <p className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">Add Videos To This Course</p>
-                      {newVideoUrls.map((videoUrl, idx) => (
-                        <div key={idx} className="flex gap-2">
-                          <input
-                            type="text"
-                            value={videoUrl}
-                            onChange={(e) => setNewVideoUrlAt(idx, e.target.value)}
-                            placeholder="https://www.youtube.com/watch?v="
-                            className="flex-1 bg-[#0f0f0f] border border-zinc-800 rounded-sm px-3 py-2 text-white text-xs focus:outline-none focus:border-[#2563EB]"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeNewVideoInput(idx)}
-                            className="px-2 py-1 rounded-sm bg-white/5 border border-white/10 text-zinc-300 hover:text-red-300 hover:border-red-400/40"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      ))}
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={addNewVideoInput}
-                          className="text-xs px-3 py-1.5 rounded-sm bg-white/5 border border-white/10 text-zinc-300 hover:bg-white/10"
-                        >
-                          Add Another URL
-                        </button>
-                        <button
-                          type="button"
-                          onClick={addVideosToExistingCourse}
-                          disabled={addingVideos}
-                          className="text-xs px-3 py-1.5 rounded-sm bg-[#2563EB] text-black font-bold disabled:opacity-70"
-                        >
-                          {addingVideos ? "Adding..." : "Add Videos"}
-                        </button>
-                      </div>
-                      <p className={`text-xs ${addVideoStatus.toLowerCase().includes("success") || addVideoStatus.toLowerCase().includes("added") ? "text-green-400" : "text-zinc-400"}`}>
-                        {addVideoStatus}
-                      </p>
-                    </div>
+                    
 
                     {modulesList.map((moduleItem, moduleIndex) => {
                       const isOpen = openModulesMap[moduleItem.title] ?? moduleIndex === 0;
@@ -1956,6 +2134,47 @@ const CoursePlayer = () => {
                         </div>
                       );
                     })}
+                    <div className="border border-white/10 bg-black/20 rounded-md p-3 space-y-2">
+                      <p className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.2em]">Add Videos To This Course</p>
+                      {newVideoUrls.map((videoUrl, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={videoUrl}
+                            onChange={(e) => setNewVideoUrlAt(idx, e.target.value)}
+                            placeholder="https://www.youtube.com/watch?v="
+                            className="flex-1 bg-[#0f0f0f] border border-zinc-800 rounded-sm px-3 py-2 text-white text-xs focus:outline-none focus:border-[#2563EB]"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeNewVideoInput(idx)}
+                            className="px-2 py-1 rounded-sm bg-white/5 border border-white/10 text-zinc-300 hover:text-red-300 hover:border-red-400/40"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={addNewVideoInput}
+                          className="text-xs px-3 py-1.5 rounded-sm bg-white/5 border border-white/10 text-zinc-300 hover:bg-white/10"
+                        >
+                          Add Another URL
+                        </button>
+                        <button
+                          type="button"
+                          onClick={addVideosToExistingCourse}
+                          disabled={addingVideos}
+                          className="text-xs px-3 py-1.5 rounded-sm bg-[#2563EB] text-black font-bold disabled:opacity-70"
+                        >
+                          {addingVideos ? "Adding..." : "Add Videos"}
+                        </button>
+                      </div>
+                      <p className={`text-xs ${addVideoStatus.toLowerCase().includes("success") || addVideoStatus.toLowerCase().includes("added") ? "text-green-400" : "text-zinc-400"}`}>
+                        {addVideoStatus}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2008,6 +2227,11 @@ const CoursePlayer = () => {
                     />
                     AI Tutor
                   </span>
+                  {aiRagStatus ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded-sm border border-white/10 bg-white/5 text-zinc-400">
+                      RAG {aiRagStatus?.retrievedChunks ?? 0}
+                    </span>
+                  ) : null}
                   <ChevronDown
                     size={14}
                     className={`text-zinc-500 transition-transform duration-500 ease-in-out ${
@@ -2114,6 +2338,7 @@ const CoursePlayer = () => {
                   setIsPracticeOpen(false);
                   setIsQuizOpen(false);
                   getNotesData();
+                  getCourseNoteReviewQueue();
                 }}
                 className="px-5 py-2 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0 cursor-pointer group/header hover:bg-white/5 transition-colors"
               >
@@ -2156,45 +2381,128 @@ const CoursePlayer = () => {
                       </div>
                     ) : (
                       <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                        {currentVideoNotes?.length ? (
-                          <div>
-                            {currentVideoNotes
-                              .map((item, idx) => {
-                                return (
+                        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Course Review Queue</p>
+                            <p className="text-[10px] text-zinc-400">
+                              Due {courseNoteQueue?.dueCount || 0} | Upcoming {courseNoteQueue?.upcomingCount || 0}
+                            </p>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setNoteCategoryFilter("all")}
+                              className={`text-[10px] px-2 py-1 rounded-sm border ${
+                                noteCategoryFilter === "all"
+                                  ? "border-[#2563EB]/40 bg-[#2563EB]/10 text-blue-300"
+                                  : "border-white/10 bg-white/5 text-zinc-400"
+                              }`}
+                            >
+                              All
+                            </button>
+                            {Object.keys(notesByCategory || {}).map((cat) => (
+                              <button
+                                key={cat}
+                                type="button"
+                                onClick={() => setNoteCategoryFilter(cat)}
+                                className={`text-[10px] px-2 py-1 rounded-sm border capitalize ${
+                                  noteCategoryFilter === cat
+                                    ? "border-[#2563EB]/40 bg-[#2563EB]/10 text-blue-300"
+                                    : "border-white/10 bg-white/5 text-zinc-400"
+                                }`}
+                              >
+                                {cat} ({(notesByCategory?.[cat] || []).length})
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {!!filteredDueNotes?.length && (
+                          <div className="mb-3 rounded-md border border-amber-500/20 bg-amber-500/8 p-3">
+                            <p className="text-[10px] uppercase tracking-[0.2em] text-amber-300 mb-2">
+                              Revision Due Now ({filteredDueNotes.length})
+                            </p>
+                            <div className="space-y-2">
+                              {filteredDueNotes.slice(0, 3).map((note) => (
+                                <div key={note?._id} className="rounded-sm border border-white/10 bg-black/20 p-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        playerInstanceRef.current.currentTime = Number(note?.timestamp || 0);
+                                        playerInstanceRef.current.play();
+                                      }}
+                                      className="text-[10px] cursor-pointer font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20"
+                                    >
+                                      {formatTimestampLabel(note?.timestamp || 0)}
+                                    </button>
+                                    <span className="text-[10px] text-zinc-400 capitalize">{note?.category || "theory"}</span>
+                                  </div>
+                                  <p className="text-xs text-zinc-300 mt-1 line-clamp-2">{note?.notesContent}</p>
+                                  <p className="text-[10px] text-zinc-500 mt-1">
+                                    Due: {note?.nextReviewAt ? new Date(note.nextReviewAt).toLocaleDateString() : "Today"}
+                                  </p>
+                                  <div className="mt-2 flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      disabled={noteRevisionLoadingId === note?._id}
+                                      onClick={() => reviewNoteNow(note?._id, 2)}
+                                      className="text-[10px] px-2 py-1 rounded-sm border border-red-500/30 bg-red-500/10 text-red-300 disabled:opacity-60"
+                                    >
+                                      Hard
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={noteRevisionLoadingId === note?._id}
+                                      onClick={() => reviewNoteNow(note?._id, 3)}
+                                      className="text-[10px] px-2 py-1 rounded-sm border border-white/10 bg-white/5 text-zinc-300 disabled:opacity-60"
+                                    >
+                                      Okay
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={noteRevisionLoadingId === note?._id}
+                                      onClick={() => reviewNoteNow(note?._id, 5)}
+                                      className="text-[10px] px-2 py-1 rounded-sm border border-green-500/30 bg-green-500/10 text-green-300 disabled:opacity-60"
+                                    >
+                                      Easy
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {noteCategoryKeys.length ? (
+                          Object.entries(filteredNotesByCategory).map(([category, notes]) => (
+                            <div key={category} className="mb-3">
+                              <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-2">{category}</p>
+                              <div className="space-y-2">
+                                {(notes || []).map((item) => (
                                   <div
-                                    key={idx}
-                                    className={`group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#2563EB]/30 hover:bg-white/6 transition-all mb-2`}
+                                    key={item?._id}
+                                    className="group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#2563EB]/30 hover:bg-white/6 transition-all"
                                   >
-                                    {/* Note Top Row: Time & Actions */}
                                     <div className="flex justify-between items-center mb-2">
                                       <div className="flex items-center gap-2">
                                         <span
                                           onClick={() => {
-                                            playerInstanceRef.current.currentTime =
-                                              Number(item.timestamp);
+                                            playerInstanceRef.current.currentTime = Number(item?.timestamp || 0);
                                             playerInstanceRef.current.play();
                                           }}
                                           className="text-[10px] cursor-pointer font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20"
                                         >
-                                          {`${Math.floor(
-                                            item?.timestamp / 60
-                                          )}:${Math.floor(
-                                            (item?.timestamp / 60 -
-                                              Math.floor(
-                                                item?.timestamp / 60
-                                              )) *
-                                              60
-                                          )}`}
+                                          {formatTimestampLabel(item?.timestamp || 0)}
                                         </span>
-                                        {/* <span className="text-[12px] font-bold text-zinc-500">
-                            Sample Note
-                          </span> */}
+                                        <span className="text-[10px] text-zinc-500">
+                                          Rev L{item?.reviewLevel || 0}
+                                        </span>
+                                        <span className="text-[10px] text-zinc-500">
+                                          Due {item?.nextReviewAt ? new Date(item.nextReviewAt).toLocaleDateString() : "Today"}
+                                        </span>
                                       </div>
-                                      {/* Actions */}
                                       <div className="flex gap-2">
-                                        <button className="text-zinc-500 hover:text-white cursor-pointer transition-colors">
-                                          <Pencil size={12} />
-                                        </button>
                                         <button
                                           onClick={async () => {
                                             await deletNotes(item._id);
@@ -2205,51 +2513,50 @@ const CoursePlayer = () => {
                                         </button>
                                       </div>
                                     </div>
-                                    {/* Note Content */}
                                     <p className="text-sm text-zinc-300 leading-relaxed">
                                       {item?.notesContent}
                                     </p>
                                   </div>
-                                );
-                              })
-                              .reverse()}
-                          </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))
+                        ) : currentVideoNotes?.length ? (
+                          currentVideoNotes.map((item) => (
+                            <div
+                              key={item?._id}
+                              className="group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#2563EB]/30 hover:bg-white/6 transition-all mb-2"
+                            >
+                              <div className="flex justify-between items-center mb-2">
+                                <span
+                                  onClick={() => {
+                                    playerInstanceRef.current.currentTime = Number(item?.timestamp || 0);
+                                    playerInstanceRef.current.play();
+                                  }}
+                                  className="text-[10px] cursor-pointer font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20"
+                                >
+                                  {formatTimestampLabel(item?.timestamp || 0)}
+                                </span>
+                                <button
+                                  onClick={async () => {
+                                    await deletNotes(item._id);
+                                  }}
+                                  className="text-zinc-500 hover:text-red-500 cursor-pointer transition-colors"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                              <p className="text-[10px] text-zinc-500 mb-1">
+                                Due: {item?.nextReviewAt ? new Date(item.nextReviewAt).toLocaleDateString() : "Today"}
+                              </p>
+                              <p className="text-sm text-zinc-300 leading-relaxed">{item?.notesContent}</p>
+                            </div>
+                          ))
                         ) : (
-                          ""
-                        )}
-                        {/* { sample note } */}
-                        <div
-                          className={`${
-                            currentVideoNotes?.length ? "hidden" : ""
-                          } group relative p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#2563EB]/30 hover:bg-white/6 transition-all`}
-                        >
-                          {/* Note Top Row: Time & Actions */}
-                          <div className="flex justify-between items-center mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-bold text-[#2563EB] bg-[#2563EB]/10 px-1.5 py-0.5 rounded-md border border-[#2563EB]/20">
-                                12:45
-                              </span>
-                              <span className="text-[12px] font-bold text-zinc-500">
-                                Sample Note
-                              </span>
-                            </div>
-                            {/* Actions */}
-                            <div className="flex gap-2">
-                              <button className="text-zinc-500 hover:text-white cursor-pointer transition-colors">
-                                <Pencil size={12} />
-                              </button>
-                              <button className="text-zinc-500 hover:text-red-500 cursor-pointer transition-colors">
-                                <Trash2 size={12} />
-                              </button>
-                            </div>
+                          <div className="text-xs text-zinc-500 border border-white/10 rounded-md p-3 bg-black/20">
+                            No notes yet. Add a note with category and it will appear in grouped sections.
                           </div>
-                          {/* Note Content */}
-                          <p className="text-sm text-zinc-300 leading-relaxed">
-                            Remember to use flex-direction: column when building
-                            the mobile layout for the navbar. The z-index needs
-                            to be higher than the hero section.
-                          </p>
-                        </div>
+                        )}
                       </div>
                     )}
                     {/* Scrollable Notes List */}
@@ -2257,6 +2564,27 @@ const CoursePlayer = () => {
                     {/* Input Area */}
                     <form onSubmit={handleNotesSubmit}>
                       <div className="p-3 border-t border-white/5 bg-[#0a0a0a]/50 backdrop-blur-md mt-auto">
+                        <div className="mb-2 flex items-center gap-2">
+                          <select
+                            value={noteCategory}
+                            onChange={(e) => setNoteCategory(e.target.value)}
+                            className="flex-1 bg-white/5 border border-white/10 rounded-md px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-blue-500/50"
+                          >
+                            <option value="theory" className="bg-[#111010] text-zinc-100">Theory</option>
+                            <option value="doubt" className="bg-[#111010] text-zinc-100">Doubt</option>
+                            <option value="code" className="bg-[#111010] text-zinc-100">Code</option>
+                            <option value="formula" className="bg-[#111010] text-zinc-100">Formula</option>
+                            <option value="revision" className="bg-[#111010] text-zinc-100">Revision</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={suggestNoteCategory}
+                            disabled={noteCategorySuggesting || !`${notesInput || ""}`.trim()}
+                            className="text-[10px] px-3 py-2 rounded-sm border border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 disabled:opacity-60"
+                          >
+                            {noteCategorySuggesting ? "Suggesting..." : "Auto"}
+                          </button>
+                        </div>
                         <div className="relative">
                           <input
                             type="text"
@@ -2265,7 +2593,7 @@ const CoursePlayer = () => {
                             onChange={handleNotesInput}
                             required
                             name="user_note"
-                            placeholder="Add a note at current time..." // Changed placeholder to be relevant
+                            placeholder="Add a note at current time..."
                             className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-10 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all placeholder:text-zinc-600"
                           />
                           <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-blue-500 rounded-lg text-zinc-400 hover:text-white transition-all">
@@ -2406,6 +2734,11 @@ const CoursePlayer = () => {
                         <div className="rounded-md border border-white/10 bg-black/20 p-3">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-xs text-zinc-500 uppercase tracking-[0.2em]">Quiz Controls</p>
+                            {quizRagStatus ? (
+                              <span className="text-[10px] px-2 py-0.5 rounded-sm border border-white/10 bg-white/5 text-zinc-400">
+                                RAG {quizRagStatus?.retrievedChunks ?? 0}
+                              </span>
+                            ) : null}
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
@@ -2457,6 +2790,56 @@ const CoursePlayer = () => {
                                     : `${latestQuizTrendDelta}%`}
                               </p>
                             </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <p className="text-xs text-zinc-500 uppercase tracking-[0.2em]">Quiz Outcome</p>
+                              <p className="text-sm text-zinc-100 font-bold mt-1">
+                                {quizResult?.score}/{quizResult?.totalQuestions} ({quizResult?.percentage}%)
+                              </p>
+                            </div>
+                            <span className={`text-xs font-bold ${
+                              quizResult?.canProceed ? "text-green-400" : "text-orange-300"
+                            }`}>
+                              {quizResult?.canProceed ? "Ready For Next Video" : "Reattempt Recommended"}
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-400 mt-2">
+                            {quizResult?.overallFeedback}
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className="text-[10px] px-2 py-1 rounded-sm border border-white/10 bg-white/5 text-zinc-300">
+                              Comprehension {quizResult?.comprehensionScore ?? 0}/100
+                            </span>
+                            <span className="text-[10px] px-2 py-1 rounded-sm border border-white/10 bg-white/5 text-zinc-300 capitalize">
+                              Skill {quizResult?.skillLevel || "developing"}
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-400 mt-2">
+                            {quizResult?.readinessReason || "Keep practicing to improve retention."}
+                          </p>
+                          <div className="mt-3 flex items-center gap-2">
+                            {quizResult?.canProceed ? (
+                              <button
+                                type="button"
+                                onClick={goToNextVideo}
+                                disabled={activeIndex >= data?.length - 1}
+                                className="text-xs px-3 py-1.5 rounded-sm bg-green-500/20 border border-green-500/30 text-green-300 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {activeIndex >= data?.length - 1 ? "Course Completed" : "Proceed To Next Video"}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={startNewQuizAttempt}
+                                className="text-xs px-3 py-1.5 rounded-sm bg-[#2563EB] text-black font-bold hover:bg-[#1d4fd8]"
+                              >
+                                Reattempt Quiz
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -2599,15 +2982,6 @@ const CoursePlayer = () => {
                           )}
                         </div>
 
-                        <div className="rounded-md border border-white/10 bg-black/20 p-3">
-                          <div className="flex items-center justify-between text-sm">
-                            <p className="text-zinc-300 font-semibold">Your Score</p>
-                            <p className="text-blue-400 font-bold">
-                              {quizResult?.score}/{quizResult?.totalQuestions} ({quizResult?.percentage}%)
-                            </p>
-                          </div>
-                          <p className="text-xs text-zinc-400 mt-2">{quizResult?.overallFeedback}</p>
-                        </div>
 
                         <div className={`rounded-md border border-white/10 bg-black/20 p-3 ${
                           (quizResult?.revisionClips || []).length ? "" : "hidden"
@@ -2781,7 +3155,7 @@ const CoursePlayer = () => {
   }`}
 >
   <div className="overflow-hidden">
-    <div className="flex flex-col h-fit max-h-133 pb-6 relative">
+    <div className="flex flex-col h-fit max-h-115 pb-3 relative">
       <div
         className={`${
           isProblemButtonOpen ? "" : "hidden"
@@ -3423,3 +3797,5 @@ const CoursePlayer = () => {
 };
 
 export default CoursePlayer;
+
+

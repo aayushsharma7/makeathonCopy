@@ -85,6 +85,44 @@ const quizAttemptModel = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    engagement: {
+        pauseCount: {
+            type: Number,
+            default: 0
+        },
+        avgPlaybackSpeed: {
+            type: Number,
+            default: 1
+        },
+        watchedSeconds: {
+            type: Number,
+            default: 0
+        },
+        pausePerMinute: {
+            type: Number,
+            default: 0
+        }
+    },
+    comprehensionScore: {
+        type: Number,
+        default: 0
+    },
+    skillLevel: {
+        type: String,
+        default: "developing"
+    },
+    canProceed: {
+        type: Boolean,
+        default: false
+    },
+    readinessReason: {
+        type: String,
+        default: ""
+    },
+    nextStep: {
+        type: String,
+        default: "reattempt"
+    },
     conceptBreakdown: [breakdownSchema],
     difficultyBreakdown: [breakdownSchema],
     strengths: [String],
